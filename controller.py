@@ -69,9 +69,9 @@ except ImportError as e:
 
 # ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-def _post(path: str, payload: dict) -> dict:
+def _post(path: str, payload: dict, timeout: int = 10) -> dict:
     try:
-        r = requests.post(f"{API_BASE}{path}", json=payload, timeout=10)
+        r = requests.post(f"{API_BASE}{path}", json=payload, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except Exception as exc:
@@ -363,7 +363,7 @@ class HoneypotController:
             "session_id":  session_id,
             "features":    features,
             "confidence":  0.0,
-        })
+        }, timeout=180)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
