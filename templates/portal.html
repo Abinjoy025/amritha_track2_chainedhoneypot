@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chained Honeypot — Project Portal</title>
+  <style>
+    :root {
+      --accent: #6c63ff;
+      --accent2: #00c9a7;
+      --dark: #0f0f1a;
+      --card: #1a1a2e;
+      --card2: #16213e;
+      --text: #e0e0f0;
+      --muted: #8888aa;
+      --danger: #ff4757;
+      --warn: #ffa502;
+      --good: #2ed573;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--dark);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    /* ── Nav ─────────────────────────────────────────────────────────── */
+    nav {
+      background: var(--card);
+      border-bottom: 1px solid #2a2a4a;
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      position: sticky; top: 0; z-index: 99;
+    }
+    .nav-logo { font-size: 22px; font-weight: 700; }
+    .nav-logo span { color: var(--accent); }
+    .nav-right { display: flex; align-items: center; gap: 20px; }
+    .nav-user { font-size: 14px; color: var(--muted); }
+    .nav-user strong { color: var(--text); }
+    .btn-logout {
+      background: transparent; border: 1px solid #334;
+      color: var(--muted); padding: 6px 14px;
+      border-radius: 6px; cursor: pointer; font-size: 13px;
+      text-decoration: none; transition: all .2s;
+    }
+    .btn-logout:hover { border-color: var(--danger); color: var(--danger); }
+    /* ── Layout ─────────────────────────────────────────────────────── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .hero {
+      text-align: center; padding: 60px 20px 40px;
+    }
+    .hero .badge {
+      display: inline-block; background: #1a1a3e;
+      border: 1px solid var(--accent); color: var(--accent);
+      font-size: 12px; padding: 4px 12px; border-radius: 20px;
+      letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px;
+    }
+    .hero h1 { font-size: 42px; font-weight: 800; line-height: 1.2; margin-bottom: 16px; }
+    .hero h1 span { color: var(--accent); }
+    .hero p { font-size: 18px; color: var(--muted); max-width: 640px; margin: 0 auto; }
+    /* ── Section titles ─────────────────────────────────────────────── */
+    .section { margin-bottom: 48px; }
+    .section-title {
+      font-size: 22px; font-weight: 700;
+      border-left: 4px solid var(--accent);
+      padding-left: 14px; margin-bottom: 24px;
+    }
+    /* ── Cards ─────────────────────────────────────────────────────── */
+    .cards { display: grid; gap: 20px; }
+    .cards-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+    .cards-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid #2a2a4a;
+      border-radius: 12px; padding: 24px;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(108,99,255,.15); }
+    .card h3 { font-size: 16px; color: var(--accent); margin-bottom: 10px; }
+    .card p { font-size: 14px; color: var(--muted); line-height: 1.7; }
+    .card .tag {
+      display: inline-block; background: #0f0f2e;
+      border: 1px solid #334; border-radius: 4px;
+      font-size: 11px; padding: 2px 8px; margin: 3px 2px; color: var(--accent2);
+    }
+    /* ── Architecture diagram ─────────────────────────────────────── */
+    .arch {
+      background: var(--card2);
+      border: 1px solid #2a2a4a; border-radius: 12px;
+      padding: 30px; text-align: center;
+    }
+    .arch-flow {
+      display: flex; align-items: center;
+      justify-content: center; flex-wrap: wrap; gap: 8px;
+      margin-top: 20px;
+    }
+    .arch-box {
+      background: #0f0f2e; border: 1px solid var(--accent);
+      padding: 10px 18px; border-radius: 8px; font-size: 13px;
+      font-weight: 600;
+    }
+    .arch-arrow { font-size: 22px; color: var(--accent); }
+    /* ── Feature list ─────────────────────────────────────────────── */
+    .feature-list { list-style: none; }
+    .feature-list li {
+      padding: 10px 0; border-bottom: 1px solid #22223a;
+      font-size: 14px; display: flex; align-items: flex-start; gap: 10px;
+    }
+    .feature-list li:last-child { border-bottom: none; }
+    .feature-list .icon { font-size: 18px; flex-shrink: 0; }
+    /* ── Comparison table ─────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #22223a; }
+    th { background: #0f0f2e; color: var(--accent); font-size: 12px;
+         text-transform: uppercase; letter-spacing: 1px; }
+    tr:hover td { background: #1e1e3a; }
+    .check { color: var(--good); }
+    .cross { color: var(--danger); }
+    /* ── Problem cards ─────────────────────────────────────────────── */
+    .problem-card {
+      background: var(--card2); border: 1px solid #2a2a4a;
+      border-left: 4px solid var(--warn);
+      border-radius: 8px; padding: 18px 20px; margin-bottom: 14px;
+    }
+    .problem-card h4 { color: var(--warn); margin-bottom: 6px; font-size: 15px; }
+    .problem-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .problem-card .solution {
+      margin-top: 8px; font-size: 13px; color: var(--good);
+    }
+    /* ── Stats row ─────────────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px; margin-bottom: 32px;
+    }
+    .stat-box {
+      background: var(--card); border: 1px solid #2a2a4a;
+      border-radius: 10px; padding: 20px; text-align: center;
+    }
+    .stat-box .num { font-size: 36px; font-weight: 800; color: var(--accent); }
+    .stat-box .label { font-size: 12px; color: var(--muted);
+                       text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+    /* ── Timeline ─────────────────────────────────────────────────── */
+    .timeline { position: relative; padding-left: 28px; }
+    .timeline::before {
+      content: ''; position: absolute; left: 8px; top: 0; bottom: 0;
+      width: 2px; background: #2a2a4a;
+    }
+    .tl-item {
+      position: relative; margin-bottom: 28px;
+    }
+    .tl-item::before {
+      content: ''; position: absolute; left: -24px; top: 4px;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--accent); border: 2px solid var(--dark);
+    }
+    .tl-item h4 { font-size: 15px; margin-bottom: 4px; }
+    .tl-item p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .tl-date { font-size: 11px; color: var(--accent2); letter-spacing: 1px;
+               text-transform: uppercase; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-logo">🍯 Chain<span>HoneyPot</span></div>
+    <div class="nav-right">
+      <span class="nav-user">Signed in as <strong>{{ user }}</strong></span>
+      <a href="/portal/logout" class="btn-logout">Sign out</a>
+      <a href="http://localhost:8080" target="_blank"
+         style="background:var(--accent);color:#fff;padding:6px 14px;border-radius:6px;
+                font-size:13px;text-decoration:none;">Live Dashboard →</a>
+    </div>
+  </nav>
+
+  <div class="page">
+
+    <!-- ── Hero ──────────────────────────────────────────────────────────── -->
+    <div class="hero">
+      <div class="badge">Beta Access — Restricted</div>
+      <h1>Chained <span>HoneyPot</span><br>Security System</h1>
+      <p>A decentralized, AI-powered intrusion deception system that traps attackers,
+         classifies them with machine learning, and secures immutable evidence on
+         IPFS + Ethereum blockchain.</p>
+    </div>
+
+    <!-- ── Stats ─────────────────────────────────────────────────────────── -->
+    <div class="stats-row">
+      <div class="stat-box"><div class="num">5</div>
+        <div class="label">Intelligence Layers</div></div>
+      <div class="stat-box"><div class="num">99.94%</div>
+        <div class="label">AI Model Accuracy</div></div>
+      <div class="stat-box"><div class="num">4</div>
+        <div class="label">NSL-KDD Attack Types</div></div>
+      <div class="stat-box"><div class="num">∞</div>
+        <div class="label">Online Retraining</div></div>
+      <div class="stat-box"><div class="num">3</div>
+        <div class="label">Storage Layers</div></div>
+    </div>
+
+    <!-- ── Architecture ───────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">🏗️ System Architecture</div>
+      <div class="arch">
+        <p style="color:var(--muted);font-size:14px;margin-bottom:4px;">
+          Complete Attack-to-Evidence Chain
+        </p>
+        <div class="arch-flow">
+          <div class="arch-box">🍯 Honeypot<br><small>Flask Trap</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">🤖 AI Classifier<br><small>Random Forest</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">🔍 IP Intel<br><small>AbuseIPDB+VT</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">🧬 Behavioral FP<br><small>Pattern Match</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">📁 Campaign<br><small>MITRE ATT&CK</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">🌐 IPFS<br><small>Pinata / Local</small></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box">⛓️ Blockchain<br><small>Sepolia / Mock</small></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── How it works ───────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">⚙️ How It Works</div>
+      <div class="cards cards-3">
+        <div class="card">
+          <h3>1️⃣ Deception Layer</h3>
+          <p>A convincing fake admin portal is exposed publicly. Attackers see a
+             login page indistinguishable from a real admin panel. Every interaction
+             is silently captured — username, password, headers, raw payload, User-Agent,
+             cookies, and query parameters.</p>
+          <br>
+          <span class="tag">Flask</span>
+          <span class="tag">X-Forwarded-For</span>
+          <span class="tag">SHA256 payload hash</span>
+        </div>
+        <div class="card">
+          <h3>2️⃣ AI Classification</h3>
+          <p>A Random Forest model trained on the NSL-KDD dataset (125,000+ records,
+             22 attack types) classifies each event in real-time. Three modes:
+             REAL (Scapy packet features), HEURISTIC (rule-based), and RULES_ONLY
+             (no model). Heuristic rules detect DoS, Probe, R2L, U2R patterns.</p>
+          <br>
+          <span class="tag">Random Forest</span>
+          <span class="tag">NSL-KDD</span>
+          <span class="tag">99.94% accuracy</span>
+        </div>
+        <div class="card">
+          <h3>3️⃣ Infrastructure Intelligence</h3>
+          <p>Every attacker IP is profiled using AbuseIPDB (abuse score), IPinfo
+             (ASN, org, city), VirusTotal (malicious detections), and a live Tor
+             exit node list. VPN/datacenter detection via ASN keywords classifies
+             whether the attacker is a script kiddie, botnet, or targeted actor.</p>
+          <br>
+          <span class="tag">AbuseIPDB</span>
+          <span class="tag">IPinfo</span>
+          <span class="tag">VirusTotal</span>
+          <span class="tag">Tor check</span>
+        </div>
+        <div class="card">
+          <h3>4️⃣ Behavioral Fingerprinting</h3>
+          <p>VPN hides location but not behavior. Each IP builds a behavioral
+             profile: timing patterns (machine-speed vs. human), credential strategies
+             (spray / stuffing / targeted), tool signatures in User-Agent, and a
+             behavioral fingerprint hash that links multiple IPs to the same actor.</p>
+          <br>
+          <span class="tag">Timing analysis</span>
+          <span class="tag">Fingerprint hash</span>
+          <span class="tag">Actor correlation</span>
+        </div>
+        <div class="card">
+          <h3>5️⃣ Campaign Tracking</h3>
+          <p>Attacks are grouped into campaigns using behavioral fingerprints,
+             MITRE ATT&CK TTP clustering, and malware family signatures. A single
+             campaign can span dozens of rotating IPs — you track the actor, not
+             just the address. Follows MITRE ATT&CK framework thinking.</p>
+          <br>
+          <span class="tag">MITRE ATT&CK</span>
+          <span class="tag">TTP clustering</span>
+          <span class="tag">Multi-IP actor</span>
+        </div>
+        <div class="card">
+          <h3>6️⃣ Immutable Evidence Chain</h3>
+          <p>Confirmed attack evidence (including IP intel, behavioral profile,
+             payload fingerprint, and full log entry) is stored on IPFS via Pinata
+             for content-addressed permanent storage, with the CID hash anchored on
+             Ethereum Sepolia testnet for tamper-proof timestamping.</p>
+          <br>
+          <span class="tag">IPFS / Pinata</span>
+          <span class="tag">Ethereum Sepolia</span>
+          <span class="tag">Smart Contract</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── What makes us different ─────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">🆚 How We Differ from Traditional Honeypots</div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Traditional Honeypot</th>
+              <th>ChainHoneyPot (This Project)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Attack Logging</td>
+              <td>IP + timestamp only</td>
+              <td class="check">✅ Full payload, headers, SHA256, User-Agent, cookies</td>
+            </tr>
+            <tr>
+              <td>Attacker Identification</td>
+              <td>IP geolocation (bypassed by VPN)</td>
+              <td class="check">✅ Infrastructure intel + behavioral fingerprinting
+                (VPN-resistant)</td>
+            </tr>
+            <tr>
+              <td>AI Classification</td>
+              <td class="cross">❌ None (or simple rules)</td>
+              <td class="check">✅ Random Forest on NSL-KDD, 99.94% accuracy,
+                online retraining</td>
+            </tr>
+            <tr>
+              <td>Threat Intelligence</td>
+              <td class="cross">❌ None</td>
+              <td class="check">✅ AbuseIPDB + VirusTotal + IPinfo + Tor detection</td>
+            </tr>
+            <tr>
+              <td>Campaign Correlation</td>
+              <td class="cross">❌ IPs treated independently</td>
+              <td class="check">✅ Campaigns group multiple IPs → same actor detection</td>
+            </tr>
+            <tr>
+              <td>MITRE ATT&CK Mapping</td>
+              <td class="cross">❌ No</td>
+              <td class="check">✅ Auto-maps payloads to T-codes</td>
+            </tr>
+            <tr>
+              <td>Model Improvement</td>
+              <td class="cross">❌ Static model or no model</td>
+              <td class="check">✅ Online learner retrains every 20 new confirmed attacks</td>
+            </tr>
+            <tr>
+              <td>Evidence Integrity</td>
+              <td>Log file (easily tampered)</td>
+              <td class="check">✅ IPFS + Ethereum blockchain (immutable, timestamped)</td>
+            </tr>
+            <tr>
+              <td>Decentralized Storage</td>
+              <td class="cross">❌ Local files only</td>
+              <td class="check">✅ IPFS content-addressed storage + blockchain anchor</td>
+            </tr>
+            <tr>
+              <td>Attacker Classification</td>
+              <td class="cross">❌ No</td>
+              <td class="check">✅ Script kiddie / Botnet / VPS actor / Tor user / Targeted</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Problems faced ─────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">🔧 Problems Faced & How We Solved Them</div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 1: AI Always Returned "Benign" for All Attacks</h4>
+        <p>The Random Forest model was trained on NSL-KDD network features (41 packet-level
+           features). Feeding it zero-vectors built from credential data always predicted
+           "benign" because no actual network patterns were present.</p>
+        <div class="solution">
+          ✅ Solution: Rewrote the predictor with 3 modes. When packet capture data is
+          unavailable (no root/sudo), the HEURISTIC mode uses rule-based classification
+          with U2R/R2L/brute-force pattern detection instead of misusing the RF model.
+        </div>
+      </div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 2: Services Crashing in Background</h4>
+        <p>Running Flask with <code>debug=True</code> spawns a reloader process that
+           requires a TTY. When backgrounded, it killed itself immediately.</p>
+        <div class="solution">
+          ✅ Solution: Set <code>debug=False, use_reloader=False</code> in all Flask apps.
+          Each service runs in its own isolated background terminal.
+        </div>
+      </div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 3: VPN Makes Geolocation Useless</h4>
+        <p>Modern attackers route through VPN, Tor, or cloud VPS, making country-based
+           attribution meaningless. Traditional honeypots only store IP + country.</p>
+        <div class="solution">
+          ✅ Solution: Layer 2-5 intelligence: ASN/org detection for VPN providers,
+          behavioral fingerprinting (attack timing, credential patterns, tool signatures),
+          cross-IP campaign correlation — attacker behavior is consistent even through VPN.
+        </div>
+      </div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 4: Static Model Can't Learn New Attack Patterns</h4>
+        <p>NSL-KDD is a 2009 dataset. New attack tools, botnets, and techniques
+           that didn't exist then would be classified incorrectly.</p>
+        <div class="solution">
+          ✅ Solution: Online Learner module appends every confirmed attack to a
+          local CSV and retrains the RF model every 20 samples, giving the model
+          3× weight on new honeypot data vs. original NSL-KDD data.
+        </div>
+      </div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 5: Evidence Can Be Deleted / Tampered</h4>
+        <p>Log files on a compromised server can be wiped. There's no way to prove
+           an attack happened after the fact if logs are deleted.</p>
+        <div class="solution">
+          ✅ Solution: Every confirmed attack is stored on IPFS (content-addressed —
+          the CID is a hash of the data, so it cannot be modified) and the CID is
+          anchored on Ethereum blockchain with a timestamp, creating a tamper-proof
+          evidence chain that survives server compromise.
+        </div>
+      </div>
+
+      <div class="problem-card">
+        <h4>❌ Problem 6: DoS / Port-Scan Attacks Show as Benign in HEURISTIC Mode</h4>
+        <p>DoS and Probe attacks don't have credential patterns — they flood packets.
+           Without raw packet access (requires root), heuristic rules can't detect them.</p>
+        <div class="solution">
+          ✅ Solution: Run controller with <code>sudo</code> to enable REAL mode —
+          Scapy packet capture extracts actual NSL-KDD network features (connection
+          rate, error rate, service distribution) which the RF model can correctly classify.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Development timeline ────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">📅 Ideas & Development Journey</div>
+      <div class="card">
+        <div class="timeline">
+          <div class="tl-item">
+            <div class="tl-date">Phase 1 — Foundation</div>
+            <h4>🍯 Core Honeypot + ML Pipeline</h4>
+            <p>Built the Flask honeypot trap, trained Random Forest on NSL-KDD dataset
+               (125,973 training records, 22 attack types), achieved 99.94% accuracy.
+               Created the Watchdog-based log monitor to feed attacks into the pipeline.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Phase 2 — Decentralization</div>
+            <h4>🌐 IPFS + Ethereum Evidence Chain</h4>
+            <p>Integrated Pinata IPFS storage and Ethereum Sepolia smart contract.
+               Every confirmed attack creates an immutable evidence record with CID
+               anchored on blockchain — attack evidence that survives server wipe.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Phase 3 — Intelligence Upgrade</div>
+            <h4>🔍 IP Intelligence & Behavioral Fingerprinting</h4>
+            <p>Added AbuseIPDB, VirusTotal, IPinfo API integration. Built behavioral
+               fingerprinting to detect same actor through VPN rotation. Added payload
+               SHA256 hashing, MITRE ATT&CK technique auto-mapping, and malware family
+               detection from known signatures.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Phase 4 — Campaign Intelligence</div>
+            <h4>📁 Campaign Tracker + Online Learning</h4>
+            <p>Implemented campaign attribution — grouping attacks from different IPs
+               into campaigns using behavioral fingerprints and TTP clustering.
+               Added the online learner that retrains the model on real attacker data,
+               making the system smarter with every new confirmed attack.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Future Ideas 🚀</div>
+            <h4>Planned Enhancements</h4>
+            <p>
+              • SSH honeypot with typing speed analysis<br>
+              • Automated honeypot token (canary tokens) for file exfiltration detection<br>
+              • Multi-node distributed honeypot network<br>
+              • Real-time Slack/Telegram alerting for HIGH severity attacks<br>
+              • GPT-powered attack narrative summarizer for incident response reports
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── NSL-KDD Attack Classes ─────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">🗂️ NSL-KDD Attack Taxonomy (What We Detect)</div>
+      <div class="cards cards-2">
+        <div class="card">
+          <h3>⚡ DoS — Denial of Service</h3>
+          <p>Overwhelm a target with traffic to make it unavailable.<br>
+             Subtypes: <span class="tag">back</span><span class="tag">land</span>
+             <span class="tag">neptune</span><span class="tag">pod</span>
+             <span class="tag">smurf</span><span class="tag">teardrop</span></p>
+          <p style="margin-top:10px">Detection: High connection count, high error rate,
+             SYN flood patterns. Requires REAL mode (packet features).</p>
+        </div>
+        <div class="card">
+          <h3>🔍 Probe — Reconnaissance</h3>
+          <p>Scan a network to find vulnerabilities before attacking.<br>
+             Subtypes: <span class="tag">ipsweep</span><span class="tag">nmap</span>
+             <span class="tag">portsweep</span><span class="tag">satan</span></p>
+          <p style="margin-top:10px">Detection: Many different destination ports,
+             low bytes per connection, systematic IP sweep patterns.</p>
+        </div>
+        <div class="card">
+          <h3>👤 R2L — Remote to Local</h3>
+          <p>Attacker gains local access by exploiting a vulnerability.<br>
+             Subtypes: <span class="tag">ftp_write</span><span class="tag">guess_passwd</span>
+             <span class="tag">imap</span><span class="tag">phf</span>
+             <span class="tag">spy</span><span class="tag">warezclient</span></p>
+          <p style="margin-top:10px">Detection: Repeated failed logins, known username
+             lists, brute-force credential patterns (works in HEURISTIC mode).</p>
+        </div>
+        <div class="card">
+          <h3>⚠️ U2R — User to Root</h3>
+          <p>Attacker escalates privileges to gain root/admin control.<br>
+             Subtypes: <span class="tag">buffer_overflow</span><span class="tag">loadmodule</span>
+             <span class="tag">perl</span><span class="tag">rootkit</span></p>
+          <p style="margin-top:10px">Detection: Root shell spawn, privilege escalation
+             commands in payload, buffer overflow attempts, /etc/shadow access
+             (works in HEURISTIC mode).</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;padding:40px 0 20px;color:var(--muted);font-size:13px;">
+      Chained HoneyPot System &mdash; Beta Access &mdash;
+      <a href="http://localhost:8080" target="_blank"
+         style="color:var(--accent);">View Live Dashboard →</a>
+    </div>
+
+  </div>
+</body>
+</html>

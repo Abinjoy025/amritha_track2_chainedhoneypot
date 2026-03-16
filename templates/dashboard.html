@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chained Honeypot Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d0d1a; --card: #12122a; --card2: #181830;
+      --border: #252540; --accent: #6c63ff; --accent2: #00c9a7;
+      --text: #d0d0e8; --muted: #7070a0; --danger: #ff4466;
+      --warn: #ffaa00; --good: #22dd88;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: var(--bg); color: var(--text); min-height: 100vh; }
+    nav { background: var(--card); border-bottom: 1px solid var(--border);
+          padding: 0 28px; display: flex; align-items: center;
+          justify-content: space-between; height: 58px;
+          position: sticky; top: 0; z-index: 99; }
+    .nav-logo { font-size: 18px; font-weight: 700; }
+    .nav-logo span { color: var(--accent); }
+    .nav-links { display: flex; gap: 6px; }
+    .nav-link { color: var(--muted); text-decoration: none;
+                padding: 6px 12px; border-radius: 6px; font-size: 13px; transition: all .2s; }
+    .nav-link:hover { background: var(--card2); color: var(--text); }
+    .nav-time { font-size: 12px; color: var(--muted); }
+    .page { max-width: 1400px; margin: 0 auto; padding: 28px 20px 60px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+             gap: 14px; margin-bottom: 28px; }
+    .stat { background: var(--card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 18px 16px; text-align: center; }
+    .stat .n { font-size: 32px; font-weight: 800; }
+    .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase;
+               letter-spacing: 1px; margin-top: 4px; }
+    .n-accent{color:var(--accent);} .n-danger{color:var(--danger);}
+    .n-warn{color:var(--warn);} .n-good{color:var(--good);} .n-accent2{color:var(--accent2);}
+    .section { background: var(--card); border: 1px solid var(--border);
+               border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between;
+                    margin-bottom: 20px; }
+    .section-title { font-size: 17px; font-weight: 700; }
+    .section-count { background: var(--card2); border: 1px solid var(--border);
+                     padding: 3px 10px; border-radius: 20px; font-size: 12px; color: var(--muted); }
+    .ev-list { display: flex; flex-direction: column; gap: 14px; }
+    .ev-card { background: var(--card2); border: 1px solid var(--border);
+               border-radius: 10px; padding: 18px; transition: all .2s; }
+    .ev-card:hover { border-color: var(--accent); }
+    .ev-top { display: flex; align-items: center; justify-content: space-between;
+              flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .ev-id { font-size: 15px; font-weight: 700; }
+    .ev-ts { font-size: 12px; color: var(--muted); }
+    .sev { padding: 3px 10px; border-radius: 20px; font-size: 11px;
+           font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .sev-high   { background: #2d1020; color: var(--danger); border: 1px solid var(--danger); }
+    .sev-medium { background: #2d1f00; color: var(--warn);   border: 1px solid var(--warn); }
+    .sev-low    { background: #001a2d; color: #4ab3ff;       border: 1px solid #4ab3ff; }
+    .ev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+               gap: 10px; font-size: 13px; }
+    .ev-field label { display: block; font-size: 10px; color: var(--muted);
+                      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+    .ev-field span { font-family: 'Courier New', monospace; font-size: 12px;
+                     color: var(--text); word-break: break-all; }
+    .ev-field a { color: var(--accent); text-decoration: none; }
+    .intel-bar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+                 display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .chip { display: inline-flex; align-items: center; gap: 4px;
+            background: #1a1a35; border: 1px solid var(--border);
+            padding: 3px 10px; border-radius: 20px; font-size: 12px; }
+    .chip.tor{border-color:#a855f7;color:#a855f7;} .chip.vpn{border-color:var(--warn);color:var(--warn);}
+    .chip.mitre{border-color:var(--accent2);color:var(--accent2);}
+    .chip.family{border-color:var(--danger);color:var(--danger);}
+    .chip.tag{border-color:#4ab3ff;color:#4ab3ff;} .chip.camp{border-color:var(--accent);color:var(--accent);}
+    .log-list { display: flex; flex-direction: column; gap: 8px; }
+    .log-item { background: var(--card2); border: 1px solid var(--border);
+                border-radius: 8px; padding: 12px 16px;
+                display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px;
+                font-size: 13px; align-items: start; }
+    .log-ts { color: var(--muted); font-size: 12px; }
+    .log-ip { font-weight: 700; font-family: monospace; }
+    .log-user { color: var(--accent2); }
+    .log-ua { color: var(--muted); font-size: 11px; grid-column: 1 / -1;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-payload { grid-column: 1 / -1; font-family: monospace; font-size: 11px;
+                   color: var(--warn); background: #1a1200; border: 1px solid #3a2800;
+                   border-radius: 4px; padding: 6px 10px; word-break: break-all;
+                   max-height: 60px; overflow: hidden; }
+    .camp-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    .camp-card { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+    .camp-card h4 { color: var(--accent); font-size: 14px; margin-bottom: 10px; }
+    .camp-meta { font-size: 12px; color: var(--muted); line-height: 1.8; }
+    .camp-ips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .ip-pill { background: #0f0f2e; border: 1px solid var(--border); border-radius: 4px;
+               padding: 2px 8px; font-size: 11px; font-family: monospace; color: var(--text); }
+    .fp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .fp-table th, .fp-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .fp-table th { font-size: 10px; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: 1px; background: var(--card); }
+    .fp-table tr:hover td { background: #1a1a35; }
+    .fp-table .mono { font-family: monospace; font-size: 11px; }
+    .insight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                    gap: 18px; margin-bottom: 24px; }
+    .insight-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+    .insight-card h4 { font-size: 13px; color: var(--muted); text-transform: uppercase;
+                       letter-spacing: 1px; margin-bottom: 14px; }
+    .bar-item { margin-bottom: 10px; }
+    .bar-label { font-size: 12px; margin-bottom: 4px; display: flex; justify-content: space-between; }
+    .bar-track { background: var(--card2); border-radius: 4px; height: 8px; overflow: hidden; }
+    .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
+    .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+    .empty .ei { font-size: 48px; margin-bottom: 12px; }
+    .btn-refresh { background: var(--accent); color: #fff; border: none;
+                   padding: 7px 14px; border-radius: 6px; cursor: pointer;
+                   font-size: 13px; font-weight: 600; }
+    .btn-refresh:hover { opacity: .85; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">🍯 Chain<span>HoneyPot</span></div>
+    <div class="nav-links">
+      <a class="nav-link" href="#evidence">Evidence</a>
+      <a class="nav-link" href="#campaigns">Campaigns</a>
+      <a class="nav-link" href="#profiles">Profiles</a>
+      <a class="nav-link" href="#logs">Logs</a>
+    </div>
+    <span class="nav-time" id="clock"></span>
+  </nav>
+
+  <div class="page">
+    <div class="stats">
+      <div class="stat"><div class="n n-accent">{{ stats.total_attempts }}</div><div class="l">Total Attempts</div></div>
+      <div class="stat"><div class="n n-danger">{{ stats.total_attacks }}</div><div class="l">Attacks Detected</div></div>
+      <div class="stat"><div class="n n-danger">{{ stats.high_severity }}</div><div class="l">High Severity</div></div>
+      <div class="stat"><div class="n n-warn">{{ stats.medium_severity }}</div><div class="l">Medium Severity</div></div>
+      <div class="stat"><div class="n n-accent2">{{ stats.campaigns }}</div><div class="l">Campaigns</div></div>
+      <div class="stat"><div class="n" style="color:#a855f7;">{{ stats.tor_attacks }}</div><div class="l">Tor Attacks</div></div>
+      <div class="stat"><div class="n n-warn">{{ stats.vpn_attacks }}</div><div class="l">VPN/DC Attacks</div></div>
+    </div>
+
+    {% if top_classes or top_mitre %}
+    <div class="insight-grid">
+      {% if top_classes %}
+      <div class="insight-card">
+        <h4>🏷️ Attacker Classes</h4>
+        {% set max_cls = top_classes[0][1] if top_classes else 1 %}
+        {% for cls, cnt in top_classes %}
+        <div class="bar-item">
+          <div class="bar-label"><span>{{ cls }}</span><span style="color:var(--accent)">{{ cnt }}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:{{ (cnt / max_cls * 100)|int }}%;"></div></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if top_mitre %}
+      <div class="insight-card">
+        <h4>🎯 Top MITRE ATT&amp;CK</h4>
+        {% set max_m = top_mitre[0][1] if top_mitre else 1 %}
+        {% for tech, cnt in top_mitre %}
+        <div class="bar-item">
+          <div class="bar-label">
+            <span style="font-size:11px">{{ tech[:40] }}{% if tech|length > 40 %}…{% endif %}</span>
+            <span style="color:var(--accent2)">{{ cnt }}</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:{{ (cnt / max_m * 100)|int }}%;background:var(--accent2);"></div></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Evidence -->
+    <div class="section" id="evidence">
+      <div class="section-head">
+        <div class="section-title">🔒 Secured Attack Evidence — Blockchain + IPFS</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="section-count">{{ evidence|length }} records</span>
+          <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
+        </div>
+      </div>
+      {% if evidence %}
+      <div class="ev-list">
+        {% for item in evidence %}
+        <div class="ev-card">
+          <div class="ev-top">
+            <div>
+              <span class="ev-id">Evidence #{{ item.evidence_id or 'N/A' }}</span>
+              {% if item.attack_label %}<span style="margin-left:10px;color:var(--warn);font-size:13px;"> — {{ item.attack_label }}</span>{% endif %}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="ev-ts">{{ item.timestamp }}</span>
+              <span class="sev sev-{{ (item.severity or 'low').lower() }}">{{ item.severity or 'LOW' }}</span>
+            </div>
+          </div>
+          <div class="ev-grid">
+            <div class="ev-field"><label>🌐 Attacker IP</label><span>{{ item.attacker_ip }}</span></div>
+            <div class="ev-field"><label>🏷️ Class</label><span>{{ item.attacker_class or '—' }}</span></div>
+            <div class="ev-field"><label>🌍 Location</label><span>{{ item.country or '—' }}{% if item.org %} / {{ item.org[:25] }}{% endif %}</span></div>
+            <div class="ev-field"><label>⚠️ Risk</label><span>{{ item.risk_score or 0 }}/100 | Abuse: {{ item.abuse_confidence or 0 }}%{% if item.is_tor %} | 🧅 Tor{% endif %}{% if item.is_vpn_or_dc %} | ☁️ VPN{% endif %}</span></div>
+            <div class="ev-field"><label>📦 IPFS CID</label><span><a href="https://ipfs.io/ipfs/{{ item.ipfs_cid }}" target="_blank">{{ (item.ipfs_cid or '')[:20] }}…</a></span></div>
+            <div class="ev-field"><label>🔗 Blockchain TX</label><span>{{ (item.blockchain_tx or 'N/A')[:20] }}…</span></div>
+            <div class="ev-field"><label>⏱️ Timing</label><span>{{ item.timing_pattern or '—' }}</span></div>
+            <div class="ev-field"><label>🆔 Behavior FP</label><span>{{ item.fingerprint_hash or '—' }}</span></div>
+            {% if item.payload_sha256 %}<div class="ev-field"><label>🧬 Payload SHA256</label><span>{{ item.payload_sha256[:20] }}…</span></div>{% endif %}
+            {% if item.campaign_name %}<div class="ev-field"><label>📁 Campaign</label><span>{{ item.campaign_name }} ({{ item.campaign_ips|length if item.campaign_ips else 1 }} IPs)</span></div>{% endif %}
+          </div>
+          <div class="intel-bar">
+            {% if item.is_tor %}<span class="chip tor">🧅 Tor</span>{% endif %}
+            {% if item.is_vpn_or_dc %}<span class="chip vpn">☁️ VPN/DC</span>{% endif %}
+            {% for f in (item.threat_feeds or []) %}<span class="chip tag">📡 {{ f }}</span>{% endfor %}
+            {% for m in (item.mitre_techniques or [])[:3] %}<span class="chip mitre">🎯 {{ m[:28] }}</span>{% endfor %}
+            {% for f in (item.malware_families or [])[:2] %}<span class="chip family">🦠 {{ f }}</span>{% endfor %}
+            {% for t in (item.behavior_tags or [])[:3] %}<span class="chip tag">🏷️ {{ t }}</span>{% endfor %}
+            {% if item.campaign_name %}<span class="chip camp">📁 {{ item.campaign_name }}</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty"><div class="ei">🔍</div><p>No attack evidence yet. Start the controller to process attacks.</p></div>
+      {% endif %}
+    </div>
+
+    <!-- Campaigns -->
+    <div class="section" id="campaigns">
+      <div class="section-head">
+        <div class="section-title">📁 Attack Campaigns</div>
+        <span class="section-count">{{ campaigns|length }} campaigns</span>
+      </div>
+      {% if campaigns %}
+      <div class="camp-list">
+        {% for c in campaigns %}
+        <div class="camp-card">
+          <h4>{{ c.name }}</h4>
+          <div class="camp-meta">
+            <b>First:</b> {{ (c.first_seen or '')[:19] }}<br>
+            <b>Last:</b> {{ (c.last_seen or '')[:19] }}<br>
+            <b>Attempts:</b> {{ c.total_attempts or 0 }}<br>
+            <b>Attack Types:</b> {{ (c.attack_types or [])|join(', ') }}<br>
+            {% if c.attacker_classes %}<b>Actor Classes:</b> {{ c.attacker_classes|join(', ') }}<br>{% endif %}
+            {% if c.malware_families %}<b>Malware:</b> {{ c.malware_families|join(', ') }}<br>{% endif %}
+          </div>
+          {% if c.mitre_techniques %}
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">
+            {% for t in c.mitre_techniques[:4] %}<span class="chip mitre" style="font-size:10px;">🎯 {{ t[:26] }}</span>{% endfor %}
+          </div>
+          {% endif %}
+          <div class="camp-ips">
+            {% for ip in c.ips[:8] %}<span class="ip-pill">{{ ip }}</span>{% endfor %}
+            {% if c.ips|length > 8 %}<span class="ip-pill" style="color:var(--muted)">+{{ c.ips|length - 8 }} more</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty"><div class="ei">📁</div><p>No campaigns yet — builds automatically as attacks accumulate.</p></div>
+      {% endif %}
+    </div>
+
+    <!-- Behavioral Profiles -->
+    <div class="section" id="profiles">
+      <div class="section-head">
+        <div class="section-title">🔎 Behavioral Fingerprint Profiles</div>
+        <span class="section-count">{{ profiles|length }} IPs profiled</span>
+      </div>
+      {% if profiles %}
+      <div style="overflow-x:auto;">
+        <table class="fp-table">
+          <thead><tr><th>IP</th><th>Attempts</th><th>Timing</th><th>Strategy</th><th>Tags</th><th>Fingerprint</th><th>First / Last</th></tr></thead>
+          <tbody>
+            {% for p in profiles[:30] %}
+            <tr>
+              <td class="mono">{{ p.ip }}</td>
+              <td style="color:var(--accent);font-weight:700;">{{ p.attempt_count }}</td>
+              <td style="font-size:12px;">{{ p.timing_pattern or '—' }}</td>
+              <td style="font-size:12px;">{{ p.credential_strategy or '—' }}</td>
+              <td>{% for t in (p.behavior_tags or [])[:3] %}<span class="chip tag" style="font-size:10px;padding:1px 6px;">{{ t }}</span>{% endfor %}</td>
+              <td class="mono" style="color:var(--accent2);">{{ p.fingerprint_hash or '—' }}</td>
+              <td style="font-size:11px;color:var(--muted);">{{ (p.first_seen or '')[:10] }}<br>{{ (p.last_seen or '')[:10] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty"><div class="ei">🔎</div><p>No profiles yet. Profiles build as attacks are processed.</p></div>
+      {% endif %}
+    </div>
+
+    <!-- Logs -->
+    <div class="section" id="logs">
+      <div class="section-head">
+        <div class="section-title">📋 Recent Honeypot Logs</div>
+        <span class="section-count">{{ logs|length }} shown</span>
+      </div>
+      {% if logs %}
+      <div class="log-list">
+        {% for log in logs[:25] %}
+        <div class="log-item">
+          <span class="log-ts">{{ log.timestamp }}</span>
+          <span class="log-ip">{{ log.attacker_ip }}</span>
+          <span class="log-user">👤 {{ log.username_attempt }}<span style="color:var(--muted)"> / {{ '*' * (log.password_attempt or '')|length }}</span></span>
+          {% if log.user_agent %}<span class="log-ua">🖥️ {{ log.user_agent }}</span>{% endif %}
+          {% if log.raw_payload and log.raw_payload|length > 10 %}
+          <div class="log-payload">🔴 Payload ({{ log.content_length or log.raw_payload|length }}B): {{ log.raw_payload[:300] }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty"><div class="ei">📝</div><p>No honeypot logs yet.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+    updateClock(); setInterval(updateClock, 1000);
+    setTimeout(() => location.reload(), 30000);
+  </script>
+</body>
+</html>
