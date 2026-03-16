@@ -33,7 +33,7 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 PINATA_JWT       = os.getenv("PINATA_JWT", "")
-PINATA_UPLOAD_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS"
+PINATA_UPLOAD_URL = "https://uploads.pinata.cloud/v3/files"
 FALLBACK_DIR     = os.path.join(os.path.dirname(__file__), "..", "data", "ipfs_fallback")
 
 ZEEK_LOG_DIR     = os.getenv("ZEEK_LOG_DIR",      "/logs/zeek")
@@ -127,11 +127,12 @@ class IPFSManager:
                 PINATA_UPLOAD_URL,
                 headers={"Authorization": f"Bearer {PINATA_JWT}"},
                 files={"file": (filename, data, "application/zip")},
-                data={"pinataMetadata": json.dumps({"name": filename})},
                 timeout=60,
             )
             resp.raise_for_status()
-            cid = resp.json().get("IpfsHash", "")
+            body = resp.json()
+            # v3 API: {"data": {"cid": "..."}}
+            cid = body.get("data", {}).get("cid") or body.get("IpfsHash", "")
             return cid if cid else None
         except Exception as exc:
             log.error("Pinata error: %s", exc)

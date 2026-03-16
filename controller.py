@@ -79,6 +79,156 @@ def _post(path: str, payload: dict) -> dict:
         return {}
 
 
+# ─── Heuristic CIC-IDS feature builder ────────────────────────────────────────
+
+_SCANNER_UAS = {"sqlmap", "nikto", "nmap", "masscan", "dirbuster",
+                "gobuster", "hydra", "zap", "burp", "metasploit"}
+
+_SQLI_TOKENS  = {"union", "select", "insert", "drop", "sleep(", "' or ", "1=1",
+                 "1%27", "or%20", "--", "%27"}
+_XSS_TOKENS   = {"<script", "javascript:", "alert(", "onerror=", "onload="}
+_PROBE_PATHS  = {"/admin", "/wp-admin", "/phpmyadmin", "/api/v1/auth",
+                 "/.env", "/config", "/backup", "/shell", "/cgi-bin"}
+
+def _features_from_http_entry(entry: dict) -> dict:
+    """
+    Build a minimal CIC-IDS 2017 style feature vector from the honeypot HTTP
+    log entry so that XGBoost can classify the attack type.
+
+    Profiles are approximated from published CIC-IDS 2017 statistics:
+      - BruteForce  : repeated login attempts (POST /login)
+      - PortScan    : path probing / scanner user-agents
+      - DoS         : HTTP flood from same IP (high content-length)
+      - Bot         : slow periodic check-in patterns
+    """
+    path       = (entry.get("path") or "/").lower()
+    ua         = (entry.get("user_agent") or "").lower()
+    method     = (entry.get("method") or "GET").upper()
+    qs         = json.dumps(entry.get("query_params") or {}).lower()
+    username   = (entry.get("username_attempt") or "").lower()
+    cl         = int(entry.get("content_length") or 0)
+
+    is_bruteforce = method == "POST" and "/login" in path
+    is_scanner    = any(s in ua for s in _SCANNER_UAS)
+    is_probe      = any(p in path for p in _PROBE_PATHS)
+    is_sqli       = any(t in qs or t in path for t in _SQLI_TOKENS)
+    is_xss        = any(t in qs or t in path for t in _XSS_TOKENS)
+
+    # ── Base zeroed template (77 CIC-IDS features) ────────────────────────────
+    f: dict = {k: 0.0 for k in [
+        "Protocol", "Flow Duration", "Total Fwd Packets", "Total Backward Packets",
+        "Fwd Packets Length Total", "Bwd Packets Length Total",
+        "Fwd Packet Length Max", "Fwd Packet Length Min",
+        "Fwd Packet Length Mean", "Fwd Packet Length Std",
+        "Bwd Packet Length Max", "Bwd Packet Length Min",
+        "Bwd Packet Length Mean", "Bwd Packet Length Std",
+        "Flow Bytes/s", "Flow Packets/s", "Flow IAT Mean", "Flow IAT Std",
+        "Flow IAT Max", "Flow IAT Min", "Fwd IAT Total", "Fwd IAT Mean",
+        "Fwd IAT Std", "Fwd IAT Max", "Fwd IAT Min", "Bwd IAT Total",
+        "Bwd IAT Mean", "Bwd IAT Std", "Bwd IAT Max", "Bwd IAT Min",
+        "Fwd PSH Flags", "Bwd PSH Flags", "Fwd URG Flags", "Bwd URG Flags",
+        "Fwd Header Length", "Bwd Header Length", "Fwd Packets/s", "Bwd Packets/s",
+        "Packet Length Min", "Packet Length Max", "Packet Length Mean",
+        "Packet Length Std", "Packet Length Variance", "FIN Flag Count",
+        "SYN Flag Count", "RST Flag Count", "PSH Flag Count", "ACK Flag Count",
+        "URG Flag Count", "CWE Flag Count", "ECE Flag Count", "Down/Up Ratio",
+        "Avg Packet Size", "Avg Fwd Segment Size", "Avg Bwd Segment Size",
+        "Fwd Avg Bytes/Bulk", "Fwd Avg Packets/Bulk", "Fwd Avg Bulk Rate",
+        "Bwd Avg Bytes/Bulk", "Bwd Avg Packets/Bulk", "Bwd Avg Bulk Rate",
+        "Subflow Fwd Packets", "Subflow Fwd Bytes", "Subflow Bwd Packets",
+        "Subflow Bwd Bytes", "Init Fwd Win Bytes", "Init Bwd Win Bytes",
+        "Fwd Act Data Packets", "Fwd Seg Size Min", "Active Mean", "Active Std",
+        "Active Max", "Active Min", "Idle Mean", "Idle Std", "Idle Max", "Idle Min",
+    ]}
+    f["Protocol"]      = 6.0   # TCP
+    f["Fwd Seg Size Min"] = 20.0
+
+    if is_bruteforce:
+        # Repeated short TCP login sessions – CIC-IDS BruteForce signature
+        f.update({
+            "Flow Duration": 1_000_000.0, "Total Fwd Packets": 8.0,
+            "Total Backward Packets": 6.0, "Fwd Packets Length Total": max(cl, 480.0),
+            "Bwd Packets Length Total": 360.0, "Fwd Packet Length Mean": 60.0,
+            "Fwd Packet Length Max": 120.0, "Fwd Packet Length Min": 40.0,
+            "Bwd Packet Length Mean": 60.0, "Bwd Packet Length Max": 120.0,
+            "Bwd Packet Length Min": 40.0, "Flow Bytes/s": 840.0,
+            "Flow Packets/s": 14.0, "Fwd Packets/s": 8.0, "Bwd Packets/s": 6.0,
+            "Flow IAT Mean": 71_428.0, "Flow IAT Std": 2_000.0,
+            "Flow IAT Max": 150_000.0, "Flow IAT Min": 1_000.0,
+            "Fwd IAT Total": 1_000_000.0, "Fwd IAT Mean": 125_000.0,
+            "Bwd IAT Total": 1_000_000.0, "Bwd IAT Mean": 166_667.0,
+            "FIN Flag Count": 1.0, "SYN Flag Count": 1.0,
+            "ACK Flag Count": 1.0, "PSH Flag Count": 1.0,
+            "Fwd Header Length": 320.0, "Bwd Header Length": 240.0,
+            "Avg Packet Size": 60.0, "Avg Fwd Segment Size": 60.0,
+            "Avg Bwd Segment Size": 60.0, "Down/Up Ratio": 0.75,
+            "Subflow Fwd Packets": 8.0, "Subflow Fwd Bytes": 480.0,
+            "Subflow Bwd Packets": 6.0, "Subflow Bwd Bytes": 360.0,
+            "Init Fwd Win Bytes": 65535.0, "Init Bwd Win Bytes": 65535.0,
+            "Fwd Act Data Packets": 6.0, "Active Mean": 1_000_000.0,
+            "Active Max": 1_000_000.0, "Active Min": 1_000_000.0,
+        })
+    elif is_scanner or is_probe:
+        # Port/path scan signature – sparse bidirectional flows
+        f.update({
+            "Flow Duration": 5_021_059.0, "Total Fwd Packets": 6.0,
+            "Total Backward Packets": 5.0, "Fwd Packets Length Total": 703.0,
+            "Bwd Packets Length Total": 1414.0, "Fwd Packet Length Max": 356.0,
+            "Fwd Packet Length Mean": 117.17, "Fwd Packet Length Std": 181.54,
+            "Bwd Packet Length Max": 1050.0, "Bwd Packet Length Mean": 282.8,
+            "Bwd Packet Length Std": 456.92, "Flow Bytes/s": 421.62,
+            "Flow Packets/s": 2.19, "Fwd Packets/s": 1.19, "Bwd Packets/s": 1.00,
+            "Flow IAT Mean": 502_105.9, "Flow IAT Std": 1_568_379.1,
+            "Flow IAT Max": 4_965_658.0, "Flow IAT Min": 19.0,
+            "Fwd IAT Total": 55_401.0, "Fwd IAT Mean": 11_080.0,
+            "Fwd IAT Std": 17_612.0, "Fwd IAT Max": 41_863.0, "Fwd IAT Min": 19.0,
+            "Bwd IAT Total": 5_020_928.0, "Bwd IAT Mean": 1_255_232.0,
+            "Bwd IAT Std": 2_499_939.5, "Bwd IAT Max": 5_005_133.0,
+            "Bwd IAT Min": 1_053.0, "Fwd Header Length": 200.0,
+            "Bwd Header Length": 168.0, "Packet Length Max": 1050.0,
+            "Packet Length Mean": 176.42, "Packet Length Std": 317.47,
+            "Packet Length Variance": 100_787.9, "PSH Flag Count": 1.0,
+            "Avg Packet Size": 192.45, "Avg Fwd Segment Size": 117.17,
+            "Avg Bwd Segment Size": 282.8, "Down/Up Ratio": 2.01,
+            "Subflow Fwd Packets": 6.0, "Subflow Fwd Bytes": 703.0,
+            "Subflow Bwd Packets": 5.0, "Subflow Bwd Bytes": 1414.0,
+            "Init Fwd Win Bytes": 29_200.0, "Init Bwd Win Bytes": 243.0,
+            "Fwd Act Data Packets": 2.0, "Fwd Seg Size Min": 32.0,
+        })
+    elif is_sqli or is_xss:
+        # Injection attacks – treated similarly to infiltration
+        f.update({
+            "Flow Duration": 10_000_000.0, "Total Fwd Packets": 50.0,
+            "Total Backward Packets": 45.0, "Fwd Packets Length Total": 10_000.0,
+            "Bwd Packets Length Total": 9_000.0, "Fwd Packet Length Mean": 200.0,
+            "Fwd Packet Length Max": 1_460.0, "Fwd Packet Length Min": 40.0,
+            "Bwd Packet Length Mean": 200.0, "Bwd Packet Length Max": 1_460.0,
+            "Flow Bytes/s": 1_900.0, "Flow Packets/s": 9.5,
+            "Fwd Packets/s": 5.0, "Bwd Packets/s": 4.5,
+            "Flow IAT Mean": 105_000.0, "Flow IAT Std": 80_000.0,
+            "Flow IAT Max": 500_000.0, "Flow IAT Min": 2_000.0,
+            "FIN Flag Count": 1.0, "SYN Flag Count": 1.0,
+            "ACK Flag Count": 1.0, "PSH Flag Count": 20.0,
+            "Fwd PSH Flags": 1.0, "Bwd PSH Flags": 1.0,
+            "Fwd Header Length": 2_000.0, "Bwd Header Length": 1_800.0,
+            "Avg Packet Size": 200.0, "Avg Fwd Segment Size": 200.0,
+            "Init Fwd Win Bytes": 65535.0, "Init Bwd Win Bytes": 65535.0,
+            "Fwd Act Data Packets": 40.0, "Active Mean": 10_000_000.0,
+            "Active Max": 10_000_000.0, "Active Min": 10_000_000.0,
+        })
+    else:
+        # Generic suspicious probe – BruteForce-lite
+        f.update({
+            "Flow Duration": 500_000.0, "Total Fwd Packets": 4.0,
+            "Total Backward Packets": 2.0, "Fwd Packet Length Mean": 80.0,
+            "Fwd Packet Length Max": 200.0, "Flow Bytes/s": 640.0,
+            "Flow Packets/s": 12.0, "SYN Flag Count": 1.0, "ACK Flag Count": 1.0,
+            "Init Fwd Win Bytes": 65535.0, "Init Bwd Win Bytes": 65535.0,
+        })
+
+    return f
+
+
 # ─── Honeyport log tailer ─────────────────────────────────────────────────────
 
 def _tail_honeypot_log(filepath: str):

@@ -38,6 +38,7 @@ models/*.pth
 # Data files (large datasets)
 data/cic-ids/
 data/threat_feeds/
+data/ipfs_fallback/
 
 # Jupyter
 .ipynb_checkpoints/
