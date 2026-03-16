@@ -39,6 +39,7 @@ models/*.pth
 data/cic-ids/
 data/threat_feeds/
 data/ipfs_fallback/
+data/blockchain_mock.json
 
 # Jupyter
 .ipynb_checkpoints/
