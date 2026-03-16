@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Environment variables
+.env
+*.env.local
+*.env.*.local
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Models (large binary files)
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pt
+models/*.pth
+
+# Data files (large datasets)
+data/cic-ids/
+data/threat_feeds/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Node / Frontend
+frontend/honeyport-ui/node_modules/
+frontend/honeyport-ui/dist/
+frontend/honeyport-ui/.vite/
+frontend/*/node_modules/
+frontend/*/dist/
+
+# Blockchain
+blockchain/config.json
+blockchain/__pycache__/
+
+# Evidence / runtime output
+evidence_summary*.json
+
+# Docker
+docker/.env
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled C extensions
+*.so
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml

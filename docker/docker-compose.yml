@@ -1,0 +1,113 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Honeyport – Docker Compose
+# Network A  (192.168.100.0/24) → "Original" Nginx server  (real service)
+# Network B  (192.168.200.0/24) → Our Honeyport Flask app  (honeypot)
+# The host runs iptables NAT to silently redirect detected attackers:
+#   Network-A:80  → Network-B:5000  (HTTP brute-force / web attacks)
+# Attack details are captured by the Flask app, stored in IPFS + Blockchain.
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  network_a:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+    driver_opts:
+      com.docker.network.bridge.name: br_net_a
+
+  network_b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24
+    driver_opts:
+      com.docker.network.bridge.name: br_net_b
+
+services:
+  # ── "Original" Server ──────────────────────────────────────────────────────
+  nginx_original:
+    build:
+      context: ./nginx
+    container_name: nginx_original
+    networks:
+      network_a:
+        ipv4_address: 192.168.100.10
+    ports:
+      - "8080:80"      # HTTP (public) — legitimate users hit this
+    volumes:
+      - ../logs/nginx:/var/log/nginx
+    restart: unless-stopped
+    labels:
+      role: "original-server"
+
+  # ── Honeyport Flask Honeypot ───────────────────────────────────────────────
+  # Runs our own Flask app (app.py) — NOT a third-party tool.
+  # Attackers are silently redirected here by iptables DNAT on the host.
+  honeyport_app:
+    build:
+      context: ..                  # project root (needs app.py, templates/, etc.)
+      dockerfile: docker/honeyport/Dockerfile
+    container_name: honeyport_app
+    networks:
+      network_b:
+        ipv4_address: 192.168.200.10
+    # NOT exposed to host directly; attackers arrive via iptables DNAT only.
+    expose:
+      - "5000"
+    environment:
+      - FLASK_SECRET=${FLASK_SECRET}
+      - HONEYPOT_HOST=0.0.0.0
+      - HONEYPOT_PORT=5000
+    volumes:
+      - ../logs/honeyport:/logs
+    restart: unless-stopped
+    labels:
+      role: "honeypot"
+
+  # ── Zeek Network Monitor ───────────────────────────────────────────────────
+  zeek_monitor:
+    image: zeek/zeek:latest
+    container_name: zeek_monitor
+    network_mode: "host"           # Must see raw packets on br_net_b
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ../logs/zeek:/opt/zeek/logs
+      - ./zeek/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+    command: zeek -i br_net_b /usr/local/zeek/share/zeek/site/local.zeek
+    restart: unless-stopped
+    labels:
+      role: "traffic-monitor"
+
+  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  api_backend:
+    build:
+      context: ..                  # project root (needs all modules)
+      dockerfile: api/Dockerfile
+    container_name: api_backend
+    network_mode: "host"           # Needs access to both Docker networks + host
+    environment:
+      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY}
+      - SHODAN_API_KEY=${SHODAN_API_KEY}
+      - PINATA_JWT=${PINATA_JWT}
+      - WEB3_PROVIDER_URL=${WEB3_PROVIDER_URL}
+      - HONEYPORT_CONTRACT_ADDRESS=${HONEYPORT_CONTRACT_ADDRESS}
+      - ETH_PRIVATE_KEY=${ETH_PRIVATE_KEY}
+      - HONEYPOT_LOG=/logs/honeyport/honeypot_logs.json
+      - ZEEK_LOG_DIR=/logs/zeek
+      - ZEEK_LOG_SUBDIR=/logs/zeek
+    volumes:
+      - ../logs:/logs
+      - ../data:/data
+      - ../models:/models
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      - honeyport_app
+    labels:
+      role: "api"

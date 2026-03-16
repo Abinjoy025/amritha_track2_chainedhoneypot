@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Honeyport v2 – Python dependencies
+# Tested on Python 3.11 / Ubuntu 22.04
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Environment variables
+python-dotenv>=1.0.1
+
+# ── Phase 2: Machine Learning (XGBoost + SHAP) ───────────────────────────────
+xgboost>=2.0.3
+shap>=0.45.0
+scikit-learn>=1.4.0
+pandas>=2.2.0
+numpy>=1.26.4
+joblib>=1.3.2
+
+# ── Phase 2: Feature extraction / capture ────────────────────────────────────
+# (Zeek runs as a separate container; we only tail its JSON logs)
+requests>=2.31.0
+inotify-simple>=1.3.5          # watchdog log tailing
+
+# ── Phase 3: SOAR ────────────────────────────────────────────────────────────
+docker>=7.0.0                  # Docker Python SDK for container lifecycle
+
+# ── Phase 4: Blockchain / IPFS ───────────────────────────────────────────────
+web3>=6.15.0
+eth-account>=0.11.0
+
+# ── Phase 5: FastAPI backend ─────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+pydantic>=2.6.0
+
+# ── Legacy Flask (app.py / dashboard.py kept for reference) ──────────────────
+flask>=3.0.0
+werkzeug>=3.0.1
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+urllib3>=2.2.0

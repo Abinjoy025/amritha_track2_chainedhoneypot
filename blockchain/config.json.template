@@ -1,0 +1,14 @@
+{
+  "network": "sepolia",
+  "rpc_url": "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID",
+  "contract_address": "",
+  "private_key": "",
+  "comment": "Instructions to fill this config:",
+  "instructions": {
+    "step_1": "Get free RPC from Infura.io or Alchemy.com",
+    "step_2": "Create MetaMask wallet or generate with: python -c 'from eth_account import Account; acc = Account.create(); print(f\"Address: {acc.address}\\nPrivate Key: {acc.key.hex()}\")'",
+    "step_3": "Get test ETH from https://sepoliafaucet.com",
+    "step_4": "Deploy smart contract and add address above",
+    "step_5": "Add your wallet private key (KEEP THIS SECRET!)"
+  }
+}
