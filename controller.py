@@ -357,6 +357,11 @@ class HoneypotController:
         if self._zeek_loop:
             features = self._zeek_loop.get_features_for_ip(ip)
 
+        # Always fall back to HTTP heuristics when Zeek features are unavailable
+        # (empty dict causes the API to skip the predictor entirely → "Unknown")
+        if not features:
+            features = _features_from_http_entry(entry)
+
         # 3. Trigger full pipeline: XGBoost + IPFS + Blockchain
         _post("/internal/session_complete", {
             "attacker_ip": ip,

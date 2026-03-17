@@ -37,6 +37,7 @@ class AttackPredictor:
         self.scaler        = None
         self.label_encoder = None
         self.feature_names = None
+        self.rf_model      = None
         self._explainer    = None   # lazy-loaded SHAP TreeExplainer
         self._load_model()
 
@@ -49,6 +50,15 @@ class AttackPredictor:
             self.label_encoder = joblib.load(os.path.join(self.model_dir, "label_encoder.pkl"))
             self.feature_names = joblib.load(os.path.join(self.model_dir, "feature_names.pkl"))
             print("✅ XGBoost model loaded (CIC-IDS trained)")
+
+            rf_path = os.path.join(self.model_dir, "rf_model.pkl")
+            if os.path.exists(rf_path):
+                self.rf_model = joblib.load(rf_path)
+                print("✅ Random Forest model loaded (stacking layer)")
+            else:
+                self.rf_model = None
+                print("⚠️  RF model not found – run train_model.py to generate rf_model.pkl")
+
             return True
         except Exception as exc:
             print(f"❌ Model load failed: {exc}")
@@ -84,26 +94,33 @@ class AttackPredictor:
 
         X_scaled = self.scaler.transform(X_raw)
 
-        # XGBoost prediction
-        pred_idx  = int(self.model.predict(X_scaled)[0])
-        proba     = self.model.predict_proba(X_scaled)[0]
-        confidence = float(proba[pred_idx])
-        attack_type = self.label_encoder.inverse_transform([pred_idx])[0]
-        is_attack   = attack_type != "Benign"
+        try:
+            # Primary path: XGBoost prediction
+            pred_idx    = int(self.model.predict(X_scaled)[0])
+            proba       = self.model.predict_proba(X_scaled)[0]
+            confidence  = float(proba[pred_idx])
+            attack_type = self.label_encoder.inverse_transform([pred_idx])[0]
+            is_attack   = attack_type != "Benign"
+            rf_verdict  = "Malicious" if is_attack else "Benign"
+            shap_info   = self._explain(X_scaled, pred_idx)
 
-        # SHAP explanation
-        shap_info = self._explain(X_scaled, pred_idx)
+            return {
+                "attack_type":   attack_type,
+                "confidence":    round(confidence, 4),
+                "is_attack":     is_attack,
+                "rf_verdict":    rf_verdict,
+                "rf_confidence": round(confidence, 4),
+                "all_proba":     {
+                    cls: round(float(p), 4)
+                    for cls, p in zip(self.label_encoder.classes_, proba)
+                },
+                "shap":          shap_info,
+            }
 
-        return {
-            "attack_type": attack_type,
-            "confidence":  round(confidence, 4),
-            "is_attack":   is_attack,
-            "all_proba":   {
-                cls: round(float(p), 4)
-                for cls, p in zip(self.label_encoder.classes_, proba)
-            },
-            "shap":        shap_info,
-        }
+        except Exception as xgb_exc:
+            # XGBoost failed — fall back to RF stacking layer
+            print(f"⚠️  XGBoost inference failed: {xgb_exc} — trying RF fallback")
+            return self._rf_fallback(xgb_exc)
 
     # ─── SHAP Explainability ─────────────────────────────────────────────────
 
@@ -138,6 +155,31 @@ class AttackPredictor:
             return {"top_features": top_features, "base_value": round(base, 4)}
         except Exception as exc:
             return {"top_features": [], "base_value": 0.0, "error": str(exc)}
+
+    # ─── RF Fallback (XGBoost failed) ────────────────────────────────────────
+
+    def _rf_fallback(self, reason) -> dict:
+        """Used only when XGBoost raises an exception during inference."""
+        if self.rf_model is not None:
+            try:
+                n_classes = len(self.label_encoder.classes_)
+                zero_proba = np.zeros((1, n_classes), dtype=np.float32)
+                rf_pred    = int(self.rf_model.predict(zero_proba)[0])
+                rf_proba   = self.rf_model.predict_proba(zero_proba)[0]
+                is_attack  = bool(rf_pred == 1)
+                return {
+                    "attack_type":   "Unknown",
+                    "confidence":    round(float(rf_proba[rf_pred]), 4),
+                    "is_attack":     is_attack,
+                    "rf_verdict":    "Malicious" if is_attack else "Benign",
+                    "rf_confidence": round(float(rf_proba[rf_pred]), 4),
+                    "all_proba":     {},
+                    "shap":          {"top_features": [], "base_value": 0.0,
+                                      "note": f"RF fallback – XGBoost failed: {reason}"},
+                }
+            except Exception as rf_exc:
+                print(f"⚠️  RF fallback also failed: {rf_exc} — using heuristic")
+        return self._heuristic_fallback({})
 
     # ─── Heuristic fallback (no model) ──────────────────────────────────────
 

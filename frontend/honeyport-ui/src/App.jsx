@@ -49,7 +49,30 @@ export default function App() {
     } catch (_) {}
   }
 
-  useEffect(() => { fetchStats() }, [])
+  // ── Load historical attacks from blockchain/mock on startup ──────────────
+  const fetchHistory = async () => {
+    try {
+      const r = await fetch('/api/attacks/latest?n=50')
+      const data = await r.json()
+      const normalized = (data.records || []).map(rec => ({
+        type:        'session_complete',
+        ip:          rec.attacker_ip,
+        attack_type: rec.attack_type,
+        osint_score: rec.osint_score,
+        ipfs_cid:    rec.ipfs_cid,
+        is_attack:   rec.attack_type !== 'Benign' && rec.attack_type !== 'Unknown',
+        rf_verdict:  rec.attack_type === 'Benign' ? 'Benign' : 'Malicious',
+        timestamp:   rec.captured_at
+          ? new Date(rec.captured_at * 1000).toISOString()
+          : null,
+        record_id:   rec.record_id,
+        _historical: true,
+      }))
+      setEvents(normalized)
+    } catch (_) {}
+  }
+
+  useEffect(() => { fetchStats(); fetchHistory() }, [])
 
   // ── Status badge ─────────────────────────────────────────────────────────
   const statusColor = {

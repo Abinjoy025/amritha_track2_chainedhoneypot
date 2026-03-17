@@ -32,6 +32,9 @@ _MODELS_DIR     = os.path.join(_BASE, '..', 'models')
 # Retrain every time this many new confirmed samples come in
 RETRAIN_THRESHOLD = 20
 
+# Set to False to disable online RF (random_forest_model.pkl) retraining entirely
+ONLINE_RF_ENABLED = False
+
 # NSL-KDD feature names (41 features)
 NSL_KDD_COLS = [
     'duration', 'protocol_type', 'service', 'flag', 'src_bytes',
@@ -69,6 +72,8 @@ class OnlineLearner:
         Add a confirmed attack (or confirmed benign) sample.
         After adding, check if retraining threshold is reached.
         """
+        if not ONLINE_RF_ENABLED:
+            return
         with self._lock:
             row = self._build_row(log_entry, attack_label, is_attack, packet_features)
             self._append_sample(row)
@@ -84,6 +89,9 @@ class OnlineLearner:
 
     def force_retrain(self):
         """Manually trigger a retrain."""
+        if not ONLINE_RF_ENABLED:
+            print("   Online RF is disabled (ONLINE_RF_ENABLED=False)")
+            return
         print("\n   🔄 Forced retrain triggered...")
         self._retrain()
 

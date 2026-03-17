@@ -192,8 +192,9 @@ async def attacker_detected(payload: AttackerDetectedPayload):
 class SessionCompletePayload(BaseModel):
     attacker_ip: str
     session_id:  str
-    features:    dict  = {}    # CIC-IDS feature vector from feature_extractor
-    confidence:  float = 0.0
+    features:    dict        = {}    # CIC-IDS feature vector from feature_extractor
+    confidence:  float       = 0.0
+    timestamp:   str | None  = None
 
 
 @app.post("/internal/session_complete")
@@ -202,10 +203,11 @@ async def session_complete(payload: SessionCompletePayload):
     Called by the controller when a Cowrie session ends.
     Pipeline:
       1. XGBoost prediction + SHAP  (if features provided)
-      2. IPFS upload of session bundle
-      3. Blockchain record storage
-      4. SOAR playbook  if confidence > 0.9 + critical attack type
-      5. Broadcast final result to WS clients
+      2. OSINT enrichment
+      3. IPFS upload — full evidence bundle (all 8 forensic fields)
+      4. Blockchain record storage
+      5. SOAR playbook  if confidence > 0.9 + critical attack type
+      6. Broadcast final result to WS clients
     """
     ip         = payload.attacker_ip
     session_id = payload.session_id
@@ -217,13 +219,23 @@ async def session_complete(payload: SessionCompletePayload):
             None, predictor.predict, payload.features
         )
 
-    # 2. IPFS upload
-    cid = await asyncio.get_event_loop().run_in_executor(
-        None, ipfs.upload_session, ip, session_id
-    )
-
-    # 3. OSINT
+    # 2. OSINT (run before IPFS so attacker network info goes into the bundle)
     osint = await asyncio.get_event_loop().run_in_executor(None, osint_enrich, ip)
+
+    # 3. IPFS upload — pass prediction + OSINT so all 8 fields are bundled
+    session_data = {
+        "timestamp": payload.timestamp or datetime.utcnow().isoformat(),
+        "trigger":   f"session:{session_id}",
+    }
+    cid, evidence_hash = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: ipfs.upload_session(
+            ip, session_id,
+            prediction=prediction,
+            osint=osint.to_dict(),
+            session_data=session_data,
+        ),
+    )
 
     # 4. Blockchain
     bc_result = await asyncio.get_event_loop().run_in_executor(
@@ -251,20 +263,26 @@ async def session_complete(payload: SessionCompletePayload):
 
     # 6. Broadcast final event
     final_event = {
-        "type":         "session_complete",
-        "ip":           ip,
-        "session_id":   session_id,
-        "attack_type":  prediction["attack_type"],
-        "confidence":   prediction["confidence"],
-        "is_attack":    prediction["is_attack"],
-        "shap":         prediction.get("shap", {}),
-        "osint_score":  osint.threat_score,
-        "osint_label":  osint.label,
-        "ipfs_cid":     cid,
-        "ipfs_url":     ipfs.get_gateway_url(cid),
-        "tx_hash":      bc_result.get("tx_hash", bc_result.get("mock_id", "")),
-        "soar_fired":   soar_result is not None,
-        "timestamp":    datetime.utcnow().isoformat(),
+        "type":          "session_complete",
+        "ip":            ip,
+        "session_id":    session_id,
+        "attack_type":   prediction["attack_type"],
+        "confidence":    prediction["confidence"],
+        "is_attack":     prediction["is_attack"],
+        "rf_verdict":    prediction.get("rf_verdict", "Unknown"),
+        "shap":          prediction.get("shap", {}),
+        "osint_score":   osint.threat_score,
+        "osint_label":   osint.label,
+        "country_code":  osint.country_code,
+        "isp":           osint.isp,
+        "open_ports":    osint.open_ports,
+        "shodan_tags":   osint.shodan_tags,
+        "ipfs_cid":      cid,
+        "ipfs_url":      ipfs.get_gateway_url(cid),
+        "evidence_hash": evidence_hash,
+        "tx_hash":       bc_result.get("tx_hash", bc_result.get("mock_id", "")),
+        "soar_fired":    soar_result is not None,
+        "timestamp":     datetime.utcnow().isoformat(),
     }
     await ws_manager.broadcast(final_event)
 

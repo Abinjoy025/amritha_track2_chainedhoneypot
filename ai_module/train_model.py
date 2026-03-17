@@ -24,6 +24,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -60,6 +61,7 @@ CIC_IDS_FEATURES = [
 
 LABEL_MAP = {
     "BENIGN":                        "Benign",
+    "Benign":                        "Benign",
     "DoS Hulk":                      "DoS",
     "DoS GoldenEye":                 "DoS",
     "DoS slowloris":                 "DoS",
@@ -191,6 +193,50 @@ class CICIDSTrainer:
         joblib.dump(self.label_encoder, os.path.join(self.model_dir, "label_encoder.pkl"))
         joblib.dump(self.feature_names, os.path.join(self.model_dir, "feature_names.pkl"))
         print(f"\n✅  Models saved to {self.model_dir}/")
+
+        self._train_rf_stage(X_train, y_train, X_test, y_test)
+
+    def _train_rf_stage(
+        self,
+        X_train: np.ndarray, y_train: np.ndarray,
+        X_test:  np.ndarray, y_test:  np.ndarray,
+    ) -> None:
+        """
+        Stage 2: Random Forest binary classifier (Benign vs Malicious).
+        Uses XGBoost class probabilities as meta-features.
+        """
+        print("\n🌲  Training Random Forest on XGBoost probabilities …")
+
+        benign_idx = list(self.label_encoder.classes_).index("Benign")
+
+        # Meta-features: XGBoost probability vector for each sample
+        meta_train = self.model.predict_proba(X_train)
+        meta_test  = self.model.predict_proba(X_test)
+
+        # Binary labels: 0 = Benign, 1 = Malicious
+        y_bin_train = (y_train != benign_idx).astype(int)
+        y_bin_test  = (y_test  != benign_idx).astype(int)
+
+        rf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=10,
+            class_weight="balanced",
+            n_jobs=-1,
+            random_state=42,
+        )
+        rf.fit(meta_train, y_bin_train)
+
+        y_rf_pred = rf.predict(meta_test)
+        print("\n📈 RF Binary Report (Benign vs Malicious):")
+        print(classification_report(
+            y_bin_test, y_rf_pred,
+            target_names=["Benign", "Malicious"],
+            zero_division=0,
+        ))
+
+        rf_path = os.path.join(self.model_dir, "rf_model.pkl")
+        joblib.dump(rf, rf_path)
+        print(f"✅  RF model saved → {rf_path}")
 
 
 def main():

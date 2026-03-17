@@ -79,6 +79,17 @@ export default function LiveFeed({ events, onSelect }) {
                   </span>
                 )}
 
+                {/* Malicious / Benign verdict */}
+                {ev.type === 'session_complete' && ev.rf_verdict && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${
+                    ev.rf_verdict === 'Malicious'
+                      ? 'bg-red-900/70 text-red-300'
+                      : 'bg-green-900/70 text-green-300'
+                  }`}>
+                    {ev.rf_verdict}
+                  </span>
+                )}
+
                 {/* OSINT score */}
                 {ev.osint_score !== undefined && (
                   <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${osintBadge(ev.osint_score)}`}>
