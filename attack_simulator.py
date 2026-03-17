@@ -513,60 +513,82 @@ ATTACK_PROFILES = {
     },
 
     # ── Infiltration ─────────────────────────────────────────────────────────
-    # CIC-IDS: Portscan + exploit – medium flows, mixed protocols.
-    # (Kept as-is – already classified correctly.)
+    # CIC-IDS 2017 Infiltration: median values from actual dataset (n=36).
+    # Key discriminators vs DoS:
+    #   Bwd Packet Length Mean : 6.0    vs DoS 1932.5  (massive difference)
+    #   Active Mean            : 570108 vs DoS 997     (stays active, not idle)
+    #   Idle Mean              : 18.9M  vs DoS 85.3M   (shorter idle periods)
+    #   FIN/PSH Flag Count     : 0      (covert — old profile wrongly set 1/20)
+    #   Total Fwd/Bwd Packets  : 26     vs DoS 6       (more symmetric flow)
+    #   Init Bwd Win Bytes     : 1452   vs DoS 235
     "Infiltration": {
         **_make_base(),
         "Protocol": 6.0,
-        "Flow Duration": 10_000_000.0,
-        "Total Fwd Packets": 50.0,
-        "Total Backward Packets": 45.0,
-        "Fwd Packets Length Total": 10_000.0,
-        "Bwd Packets Length Total": 9_000.0,
-        "Fwd Packet Length Mean": 200.0,
-        "Fwd Packet Length Max": 1_460.0,
-        "Fwd Packet Length Min": 40.0,
-        "Bwd Packet Length Mean": 200.0,
-        "Bwd Packet Length Max": 1_460.0,
-        "Bwd Packet Length Min": 40.0,
-        "Flow Bytes/s": 1_900.0,
-        "Flow Packets/s": 9.5,
-        "Fwd Packets/s": 5.0,
-        "Bwd Packets/s": 4.5,
-        "Flow IAT Mean": 105_000.0,
-        "Flow IAT Std": 80_000.0,
-        "Flow IAT Max": 500_000.0,
-        "Flow IAT Min": 2_000.0,
-        "Fwd IAT Total": 10_000_000.0,
-        "Fwd IAT Mean": 200_000.0,
-        "Bwd IAT Total": 10_000_000.0,
-        "Bwd IAT Mean": 222_222.0,
-        "FIN Flag Count": 1.0,
-        "SYN Flag Count": 1.0,
-        "ACK Flag Count": 1.0,
-        "PSH Flag Count": 20.0,
-        "Fwd PSH Flags": 1.0,
-        "Bwd PSH Flags": 1.0,
-        "Fwd Header Length": 2_000.0,
-        "Bwd Header Length": 1_800.0,
-        "Packet Length Mean": 200.0,
-        "Packet Length Std": 60.0,
-        "Packet Length Variance": 3_600.0,
-        "Avg Packet Size": 200.0,
-        "Avg Fwd Segment Size": 200.0,
-        "Avg Bwd Segment Size": 200.0,
-        "Down/Up Ratio": 0.9,
-        "Subflow Fwd Packets": 50.0,
-        "Subflow Fwd Bytes": 10_000.0,
-        "Subflow Bwd Packets": 45.0,
-        "Subflow Bwd Bytes": 9_000.0,
-        "Init Fwd Win Bytes": 65_535.0,
-        "Init Bwd Win Bytes": 65_535.0,
-        "Fwd Act Data Packets": 40.0,
-        "Fwd Seg Size Min": 20.0,
-        "Active Mean": 10_000_000.0,
-        "Active Max": 10_000_000.0,
-        "Active Min": 10_000_000.0,
+        "Flow Duration":            93_188_869.0,
+        "Total Fwd Packets":        26.0,
+        "Total Backward Packets":   26.0,
+        "Fwd Packets Length Total": 7_521.0,
+        "Bwd Packets Length Total": 156.0,
+        "Fwd Packet Length Max":    1_460.0,
+        "Fwd Packet Length Min":    0.0,
+        "Fwd Packet Length Mean":   289.27,
+        "Fwd Packet Length Std":    450.0,
+        "Bwd Packet Length Max":    20.0,
+        "Bwd Packet Length Min":    0.0,
+        "Bwd Packet Length Mean":   6.0,
+        "Bwd Packet Length Std":    8.0,
+        "Flow Bytes/s":             173.35,
+        "Flow Packets/s":           1.00,
+        "Fwd Packets/s":            0.51,
+        "Bwd Packets/s":            0.32,
+        "Flow IAT Mean":            3_870_000.0,
+        "Flow IAT Std":             15_000_000.0,
+        "Flow IAT Max":             90_000_000.0,
+        "Flow IAT Min":             2.0,
+        "Fwd IAT Total":            93_000_000.0,
+        "Fwd IAT Mean":             3_720_000.0,
+        "Fwd IAT Std":              14_000_000.0,
+        "Fwd IAT Max":              89_000_000.0,
+        "Fwd IAT Min":              2.0,
+        "Bwd IAT Total":            93_000_000.0,
+        "Bwd IAT Mean":             3_720_000.0,
+        "Bwd IAT Std":              14_000_000.0,
+        "Bwd IAT Max":              89_000_000.0,
+        "Bwd IAT Min":              2.0,
+        "Fwd Header Length":        832.0,
+        "Bwd Header Length":        832.0,
+        "Packet Length Min":        0.0,
+        "Packet Length Max":        1_460.0,
+        "Packet Length Mean":       147.63,
+        "Packet Length Std":        320.0,
+        "Packet Length Variance":   102_400.0,
+        "FIN Flag Count":           0.0,
+        "SYN Flag Count":           1.0,
+        "RST Flag Count":           0.0,
+        "PSH Flag Count":           0.0,
+        "ACK Flag Count":           1.0,
+        "Fwd PSH Flags":            0.0,
+        "Bwd PSH Flags":            0.0,
+        "Down/Up Ratio":            0.98,
+        "Avg Packet Size":          147.63,
+        "Avg Fwd Segment Size":     289.27,
+        "Avg Bwd Segment Size":     6.0,
+        "Subflow Fwd Packets":      26.0,
+        "Subflow Fwd Bytes":        7_521.0,
+        "Subflow Bwd Packets":      26.0,
+        "Subflow Bwd Bytes":        156.0,
+        "Init Fwd Win Bytes":       255.0,
+        "Init Bwd Win Bytes":       1_452.0,
+        "Fwd Act Data Packets":     20.0,
+        "Fwd Seg Size Min":         20.0,
+        "Active Mean":              570_108.5,
+        "Active Std":               800_000.0,
+        "Active Max":               2_000_000.0,
+        "Active Min":               50_000.0,
+        "Idle Mean":                18_950_000.0,
+        "Idle Std":                 30_000_000.0,
+        "Idle Max":                 89_000_000.0,
+        "Idle Min":                 500_000.0,
     },
 
     # ── Heartbleed ────────────────────────────────────────────────────────────
@@ -703,10 +725,23 @@ def phase_b():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Honeyport Attack Simulator")
+    parser.add_argument("--url", default=HONEYPOT_URL,
+                        help="Target honeypot URL (default: %(default)s)")
+    parser.add_argument("--phase", choices=["a", "b", "both"], default="both",
+                        help="Which phase to run: a=HTTP attacks, b=XGBoost eval, both (default)")
+    args = parser.parse_args()
+
+    HONEYPOT_URL = args.url.rstrip("/")
+
     print(f"\n{BOLD}{CYAN}Honeyport Attack Simulator{RESET}")
     print(f"{CYAN}Honeypot target : {HONEYPOT_URL}{RESET}")
+    print(f"{CYAN}Phase           : {args.phase}{RESET}")
 
-    phase_a()
-    phase_b()
+    if args.phase in ("a", "both"):
+        phase_a()
+    if args.phase in ("b", "both"):
+        phase_b()
 
     print(f"\n{GREEN}{BOLD}Simulation complete.{RESET}\n")
