@@ -14,6 +14,7 @@ Falls back gracefully when API keys are absent or rate-limits are hit.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import time
 import logging
@@ -105,6 +106,17 @@ def enrich(ip: str) -> OsintResult:
     """
     Full OSINT lookup for an IP.  Results are cached for CACHE_TTL seconds.
     """
+    # Skip external API calls for private/loopback/reserved IPs — they have
+    # no AbuseIPDB or Shodan records and the calls would just hang/timeout.
+    try:
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_unspecified:
+            result = OsintResult(ip=ip, label="Reserved/Private")
+            CACHE[ip] = result
+            return result
+    except ValueError:
+        pass  # invalid IP string, let it proceed and fail gracefully
+
     if ip in CACHE and (time.time() - CACHE[ip].timestamp) < CACHE_TTL:
         return CACHE[ip]
 
