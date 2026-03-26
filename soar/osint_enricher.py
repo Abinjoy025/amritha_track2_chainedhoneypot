@@ -114,6 +114,12 @@ def enrich(ip: str) -> OsintResult:
             result = OsintResult(ip=ip, label="Reserved/Private")
             CACHE[ip] = result
             return result
+        # Skip IPv6 addresses - many OSINT services don't support them well
+        if isinstance(addr, ipaddress.IPv6Address):
+            log.info("Skipping OSINT for IPv6 address: %s", ip)
+            result = OsintResult(ip=ip, label="IPv6 (OSINT skipped)", country_code="Unknown")
+            CACHE[ip] = result
+            return result
     except ValueError:
         pass  # invalid IP string, let it proceed and fail gracefully
 

