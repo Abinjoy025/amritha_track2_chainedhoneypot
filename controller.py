@@ -350,7 +350,7 @@ class HoneypotController:
             "attacker_ip": ip,
             "trigger":     f"web_attack:{entry.get('path','/')}",
             "timestamp":   entry.get("timestamp", datetime.utcnow().isoformat()),
-        })
+        }, timeout=30)
 
         # 2. Get latest Zeek features for this IP (if available)
         features = {}
